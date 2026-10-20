@@ -49,7 +49,7 @@ class Match:
         self.pt = d.player_ticks.select(
             "tick", "hero_id", "x", "y", "is_alive", "health", "max_health", "souls",
             "gold_net_worth", "kills", "deaths", "assists", "hero_damage",
-            "objective_damage", "hero_healing", "kill_streak", "last_hits", "level", "death_time",
+            "objective_damage", "hero_healing", "kill_streak", "last_hits", "denies", "level", "death_time",
             "has_ultimate_trained", "ultimate_cooldown_start", "ultimate_cooldown_end",
         )
         self.end_tick = d.game_over_tick or d.total_ticks
@@ -203,6 +203,7 @@ def analyze(path):
 
     # ---------- kills / deaths ----------
     kill_times = {h: [] for h in heroes}
+    death_spots = []  # (tick, hero, x, y) for duo stats
     isolated_deaths = {h: 0 for h in heroes}
     deaths_with_ult = {h: 0 for h in heroes}
     for k in kills:
@@ -215,6 +216,7 @@ def analyze(path):
         if not vrow:
             continue
         vpos = (vrow["x"], vrow["y"])
+        death_spots.append((k["tick"], v, vpos))
         vteam = m.team(v)
         allies = [h for h, r in before.items() if h != v and m.team(h) == vteam and r["is_alive"]
                   and _dist(vpos, (r["x"], r["y"])) < NEAR]
@@ -337,11 +339,13 @@ def analyze(path):
                 used = any(s_tick - 3 * m.rate <= c <= e_tick + m.rate for c in casts[h])
                 ready = m.ult_ready(start.get(h), s_tick)
                 ult = "used" if used else "ready" if ready else ("cd" if start.get(h, {}).get("has_ultimate_trained") else "none")
+                mine = fd.filter(pl.col("attacker_hero_id") == h)["tick"]
+                join = round((mine.min() - fd["tick"].min()) / m.rate, 1) if len(mine) and len(fd) else None
                 res = "W" if winner == team else "L" if winner else "="
                 fight_rows[h].append({"t": round(t0, 1), "clock": _clock(t0), "res": res,
                                       "score": f"{lost[5 - team]}:{lost[team]}", "ka": score, "dmg": my_dmg,
                                       "taken": taken.get(h, 0), "share": round(share * 100), "died": bool(died),
-                                      "ult": ult})
+                                      "ult": ult, "join": join})
                 bits = [f"урон {my_dmg} ({share * 100:.0f}% команды)", f"убийств и ассистов: {score}"]
                 if used:
                     ult_fight[h]["used"] += 1
@@ -356,6 +360,10 @@ def analyze(path):
                         add(h, t0, "ult", False, "Не прожал ульту",
                             f"Ульта была готова всю драку ({'проиграли' if res == 'L' else 'разменялись' if res == '=' else 'выиграли, но ты умер'})",
                             center, 1.3)
+                if join is not None and join >= 6 and res != "W" and len(fk) >= 3:
+                    add(h, t0, "fight", False, "Опоздал в драку",
+                        f"Первый урон через {join:.0f} с после начала драки, а драка {'проиграна' if res == 'L' else 'в размен'}",
+                        center, 1.0)
                 if died and first_death[team] is died and died["tick"] - s_tick <= 5 * m.rate and share < 0.12:
                     add(h, m.sec(died["tick"]), "fight", False, "Слил вход в драку",
                         f"Умер первым через {(died['tick'] - s_tick) / m.rate:.0f} с, урон всего {my_dmg}", center, 1.4)
@@ -493,6 +501,32 @@ def analyze(path):
                       max(1, sum(s["gold"] for s in sources[h]))) for h in heroes}
     lobby_camp = statistics.median(camp_share.values())
 
+    # ---------- lane by minute ----------
+    lh = {h: samples.filter(pl.col("hero_id") == h).sort("i")["last_hits"].fill_null(0).to_list() for h in heroes}
+    dn = {h: samples.filter(pl.col("hero_id") == h).sort("i")["denies"].fill_null(0).to_list() for h in heroes}
+    lane_min = {}
+    mins = [mm for mm in range(1, 13) if mm * 60 < n]
+    for h in heroes:
+        foes = [o for o in heroes if m.by_hero[o]["start_lane"] == m.by_hero[h]["start_lane"] and m.team(o) != m.team(h)]
+        at = lambda arr, hh, mm: arr[hh][mm * 60]
+        lane_min[h] = {"m": mins,
+                       "me": {"nw": [at(nw, h, mm) for mm in mins], "lh": [at(lh, h, mm) for mm in mins], "dn": [at(dn, h, mm) for mm in mins]},
+                       "foe": {key: [round(statistics.mean(at(arr, o, mm) for o in foes)) if foes else 0 for mm in mins]
+                               for key, arr in (("nw", nw), ("lh", lh), ("dn", dn))},
+                       "foes": foes}
+
+    # ---------- duos ----------
+    pairs = []
+    for i_, a_ in enumerate(heroes):
+        for b_ in heroes[i_ + 1:]:
+            if m.team(a_) != m.team(b_):
+                continue
+            died = sum(1 for ta, ha, pa in death_spots for tb, hb, pb in death_spots
+                       if ha == a_ and hb == b_ and abs(ta - tb) <= 6 * m.rate and _dist(pa, pb) < 2500)
+            together = sum(1 for kk in kills if {a_, b_} <= ({kk["attacker_hero_id"]} | set(kk["assister_hero_ids"] or [])))
+            pairs.append({"a": int(m.by_hero[a_]["steam_id"]) - STEAM64, "b": int(m.by_hero[b_]["steam_id"]) - STEAM64,
+                          "ha": a_, "hb": b_, "died": died, "kills": together})
+
     # ---------- combat breakdown ----------
     hero_dmg = d.damage.filter(pl.col("attacker_hero_id").is_in(heroes) & pl.col("victim_hero_id").is_in(heroes)
                                & (pl.col("attacker_hero_id") != pl.col("victim_hero_id")))
@@ -603,6 +637,8 @@ def analyze(path):
             "ult_unused": ult_fight[h]["unused"],
             "hs_pct": round(100 * combat[h]["hs"] / combat[h]["hits"]) if combat[h]["hits"] >= 20 else None,
             "first_t3": first_t3[h],
+            "join_s": round(statistics.mean(j), 1) if (j := [r["join"] for r in fight_rows[h] if r.get("join") is not None]) else None,
+            "lh10": lane_min[h]["me"]["lh"][9] if len(lane_min[h]["m"]) >= 10 else None,
         }
 
     # ---------- ruinometer ----------
@@ -675,7 +711,7 @@ def analyze(path):
                        "split": combat[h]["split"], "hs": combat[h]["hs"], "hits": combat[h]["hits"],
                        "killed": {str(k_): v for k_, v in kill_matrix[h]["killed"].items()},
                        "killed_by": {str(k_): v for k_, v in kill_matrix[h]["killed_by"].items()}},
-            "items": purchases[h], "build": owned[h], "zones": zones[h],
+            "items": purchases[h], "build": owned[h], "zones": zones[h], "lane_min": lane_min[h],
             "moments": sorted(moments[h], key=lambda x: x["t"]),
         })
     losers = [p for p in out_players if not p["won"]]
@@ -708,7 +744,7 @@ def analyze(path):
         "players": out_players,
         "ruiner": ruiner and ruiner["hero_id"], "mvp": mvp and mvp["hero_id"],
         "kills": kills_out, "objectives": objectives_out, "objective_spots": objective_spots,
-        "fights": fights_out, "events": sorted(events, key=lambda e: e["t"]), "camps": camps,
+        "fights": fights_out, "events": sorted(events, key=lambda e: e["t"]), "camps": camps, "pairs": pairs,
         "track": {str(h): v for h, v in track.items()},
     }
 

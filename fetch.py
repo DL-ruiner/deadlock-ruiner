@@ -2,6 +2,7 @@
 import bz2
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -30,7 +31,13 @@ def fetch_demo(match_id: int) -> Path:
         return out
     raw = DEMOS / f"{match_id}.raw"
     if not raw.exists():
-        r = requests.get(f"{API}/matches/{match_id}/salts", timeout=30)
+        for attempt in range(4):
+            r = requests.get(f"{API}/matches/{match_id}/salts", timeout=30)
+            if r.status_code not in (429, 503):
+                break
+            time.sleep(min(60, int(r.headers.get("Retry-After") or 20)))
+        if r.status_code in (429, 503):
+            raise RuntimeError(f"Steam busy for match {match_id}, retry later")
         r.raise_for_status()
         url = r.json().get("demo_url")
         if not url:

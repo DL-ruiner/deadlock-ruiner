@@ -1,5 +1,6 @@
 """Download map, camp and hero art from deadlock-api into web/assets (run once per patch)."""
 import json
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -51,8 +52,27 @@ def main():
         items[it["id"]] = {"name": it["name"], "slot": it.get("item_slot_type"), "tier": it.get("item_tier"),
                            "cost": it.get("cost"), "img": grab(it.get("image_webp") or it.get("image"), "items")}
     (OUT / "items.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    bench()
     print(f"map: {len(camps)} camps, heroes: {len(heroes)}, items: {len(items)}")
 
 
+def bench():
+    """Average player per hero over the last 30 days, for the 'vs average' block."""
+    since = {"min_unix_timestamp": int(time.time()) - 30 * 86400}
+    g = requests.get(f"{API.replace('/assets', '')}/analytics/game-stats", params=since, timeout=120).json()[0]
+    out = {"duration": g["avg_duration_s"], "accuracy": g["avg_accuracy"], "heroes": {}}
+    for h in requests.get(f"{API.replace('/assets', '')}/analytics/hero-stats", params=since, timeout=120).json():
+        n = h["matches"] or 1
+        shots = (h["total_shots_hit"] + h["total_shots_missed"]) or 1
+        out["heroes"][h["hero_id"]] = {
+            "matches": h["matches"], "winrate": round(h["wins"] / n, 3),
+            "k": h["total_kills"] / n, "d": h["total_deaths"] / n, "a": h["total_assists"] / n,
+            "nw": h["total_net_worth"] / n, "dmg": h["total_player_damage"] / n, "lh": h["total_last_hits"] / n,
+            "acc": h["total_shots_hit"] / shots,
+        }
+    (OUT / "bench.json").write_text(json.dumps(out), encoding="utf-8")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    bench() if "--bench" in sys.argv else main()

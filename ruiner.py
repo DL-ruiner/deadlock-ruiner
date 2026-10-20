@@ -26,7 +26,7 @@ REPORTS = WEB / "reports"
 
 SUMMARY_STATS = ("kills", "deaths", "assists", "net_worth", "spm", "dpm", "kp", "hs_pct", "lane_diff", "isolated_deaths",
                  "missed_fights", "ult_deaths", "ult_unused", "camp_share", "dead_pct", "objective_damage", "healing",
-                 "first_t3", "farm_bad")
+                 "first_t3", "farm_bad", "join_s", "lh10")
 
 
 def _count_titles(moments, good):
@@ -46,6 +46,7 @@ def rebuild_index():
         rows.append({
             "match_id": r["match_id"], "duration": r["duration"], "clock": r["clock"], "winner": r["winner"],
             "start_time": r.get("start_time"), "ruiner": r["ruiner"], "mvp": r["mvp"],
+            "pairs": [{k: x[k] for k in ("a", "b", "died", "kills")} for x in r.get("pairs", [])],
             "players": [{k: p[k] for k in ("account_id", "name", "hero", "hero_id", "team", "won", "ruin", "verdict")}
                         | {"kda": f"{p['stats']['kills']}/{p['stats']['deaths']}/{p['stats']['assists']}",
                            "s": {k: p["stats"].get(k) for k in SUMMARY_STATS},
@@ -94,12 +95,36 @@ def run_player(account_id, n):
             print(f"match {m['match_id']}: skipped ({e})")
 
 
+def _load_set(name):
+    f = REPORTS / name
+    return set(json.loads(f.read_text())) if f.exists() else set()
+
+
+def _save_set(name, values):
+    REPORTS.mkdir(parents=True, exist_ok=True)
+    (REPORTS / name).write_text(json.dumps(sorted(values)))
+
+
+def _transient(err):
+    return "busy" in str(err) or "503" in str(err) or "429" in str(err) or "timed out" in str(err).lower()
+
+
 def run_friends(n):
     """Analyze fresh matches of the whole group; remember matches Valve has no replay for."""
-    skip_file = REPORTS / "skipped.json"
-    skipped = set(json.loads(skip_file.read_text())) if skip_file.exists() else set()
+    skipped = _load_set("skipped.json")
+    pending = _load_set("pending.json")
     friends = json.loads((WEB / "friends.json").read_text(encoding="utf-8"))
     seen = set()
+    for mid in sorted(pending):
+        seen.add(mid)
+        try:
+            run_match(mid)
+            pending.discard(mid)
+        except Exception as e:
+            print(f"match {mid}: still pending ({e})")
+            if not _transient(e):
+                pending.discard(mid)
+                skipped.add(mid)
     for f in friends:
         try:
             r = requests.get(f"{API}/players/{f['account_id']}/match-history", timeout=60)
@@ -116,9 +141,12 @@ def run_friends(n):
                 run_match(mid, start_time=m["start_time"])
             except Exception as e:
                 print(f"match {mid}: skipped ({e})")
-                if "no replay" in str(e) or "404" in str(e) or "400" in str(e):
+                if _transient(e):
+                    pending.add(mid)
+                elif "no replay" in str(e) or "404" in str(e) or "400" in str(e):
                     skipped.add(mid)
-    skip_file.write_text(json.dumps(sorted(skipped)))
+    _save_set("skipped.json", skipped)
+    _save_set("pending.json", pending)
     rebuild_index()
 
 
@@ -138,7 +166,8 @@ def run_request(text):
         r.raise_for_status()
         todo = [(m["match_id"], m["start_time"]) for m in sorted(r.json(), key=lambda m: -m["start_time"])[:5]]
     else:
-        todo = [(int(x), None) for x in dict.fromkeys(re.findall(r"\d{8,}", text))][:5]
+        limit = 30 if re.search(r"(?i)sync", text) else 5
+        todo = [(int(x), None) for x in dict.fromkeys(re.findall(r"\d{8,}", text))][:limit]
         if re.search(r"(?i)reanalyze|переразобрать", text):
             for mid, _ in todo:
                 old = REPORTS / f"{mid}.json"
@@ -152,6 +181,10 @@ def run_request(text):
             run_match(mid, start_time=st)
             print(f"- {mid}: готово")
         except Exception as e:
+            if _transient(e):
+                _save_set("pending.json", _load_set("pending.json") | {mid})
+                print(f"- {mid}: Steam сейчас занят, матч в очереди, бот разберёт его в следующем прогоне")
+                continue
             reason = "у Valve нет реплея" if "no replay" in str(e) or "404" in str(e) else str(e)[:120]
             print(f"- {mid}: не разобран ({reason})")
 

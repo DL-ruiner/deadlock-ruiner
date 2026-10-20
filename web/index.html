@@ -89,7 +89,7 @@ input[type=text],input:not([type]){background:var(--ink);border:1px solid var(--
 .banner{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
 .layout{display:grid;grid-template-columns:minmax(320px,680px) minmax(0,1fr);gap:14px;align-items:start}
 @media (max-width:1100px){.layout{grid-template-columns:1fr}}
-#map{width:100%;max-width:100%;aspect-ratio:1;background:#0b0f0e;border-radius:12px;border:1px solid var(--rule);display:block}
+#map{cursor:grab;touch-action:none;width:100%;max-width:100%;aspect-ratio:1;background:#0b0f0e;border-radius:12px;border:1px solid var(--rule);display:block}
 .controls{display:flex;align-items:center;gap:6px;margin:8px 0;flex-wrap:wrap}
 .controls button{background:var(--slab2);color:var(--parch);border:1px solid var(--rule);border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:600}
 .controls button.on{border-color:var(--brass);color:var(--brass2)}
@@ -165,7 +165,7 @@ const STEAM64 = 76561197960265728;
 const app = document.getElementById('app');
 const store = {get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d } catch { return d } },
                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }};
-let index = [], stopReplay = null, MAPDATA = null, HEROES = {}, ITEMS = {}, CONFIG = null, FRIENDS = [], HAS_API = null;
+let index = [], stopReplay = null, MAPDATA = null, HEROES = {}, ITEMS = {}, BENCH = null, CONFIG = null, FRIENDS = [], HAS_API = null;
 const IMG = {};
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -186,8 +186,9 @@ function img(src) {
 async function getJSON(url, fallback) { try { const r = await fetch(url, {cache: 'no-store'}); return r.ok ? await r.json() : fallback } catch { return fallback } }
 
 async function loadStatic() {
-  if (!MAPDATA) [MAPDATA, HEROES, ITEMS, CONFIG] = await Promise.all([
-    getJSON('assets/map.json', null), getJSON('assets/heroes.json', {}), getJSON('assets/items.json', {}), getJSON('config.json', {})]);
+  if (!MAPDATA) [MAPDATA, HEROES, ITEMS, BENCH, CONFIG] = await Promise.all([
+    getJSON('assets/map.json', null), getJSON('assets/heroes.json', {}), getJSON('assets/items.json', {}),
+    getJSON('assets/bench.json', null), getJSON('config.json', {})]);
   if (HAS_API === null) HAS_API = await fetch('api/ping', {cache: 'no-store'}).then(r => r.ok).catch(() => false);
   const file = await getJSON('friends.json', []);
   const all = [...file, ...store.get('friends', []).map(f => ({...f, local: true}))];
@@ -227,9 +228,33 @@ function crewStats(f) {
   return {f, g, n, ruin: avg(g.map(x => x.p.ruin)), wins: g.filter(x => x.p.won).length,
     ruiner: g.filter(x => x.m.ruiner === x.p.hero_id).length, mvp: g.filter(x => x.m.mvp === x.p.hero_id).length,
     k: S('kills'), d: S('deaths'), a: S('assists'), spm: S('spm'), dpm: S('dpm'), hs: S('hs_pct'), kp: S('kp'),
-    iso: S('isolated_deaths'), ultd: S('ult_deaths'), lane: S('lane_diff'), camp: S('camp_share'),
+    iso: S('isolated_deaths'), ultd: S('ult_deaths'), lane: S('lane_diff'), camp: S('camp_share'), join: S('join_s'), lh10: S('lh10'),
     heroes: Object.entries(heroes).map(([id, v]) => ({id: +id, n: v.n, ruin: v.ruin / v.n})).sort((a, b) => b.n - a.n),
     mist: Object.entries(mist).sort((a, b) => b[1] - a[1]), good: Object.entries(good).sort((a, b) => b[1] - a[1])};
+}
+
+function duoStats() {
+  const crew = new Map(FRIENDS.map(f => [f.account_id, f]));
+  const pairs = {};
+  for (const m of index) for (const pr of m.pairs || []) {
+    if (!crew.has(pr.a) || !crew.has(pr.b)) continue;
+    const [a, b] = pr.a < pr.b ? [pr.a, pr.b] : [pr.b, pr.a];
+    const pa = m.players.find(p => p.account_id === a), pb = m.players.find(p => p.account_id === b);
+    const d = pairs[a + ':' + b] ||= {a: crew.get(a), b: crew.get(b), n: 0, wins: 0, ruin: 0, died: 0, kills: 0};
+    d.n++; d.wins += pa.won ? 1 : 0; d.ruin += (pa.ruin + pb.ruin) / 2; d.died += pr.died; d.kills += pr.kills;
+  }
+  return Object.values(pairs).map(d => ({...d, wr: d.wins / d.n, ruin: d.ruin / d.n, diedPer: d.died / d.n, killsPer: d.kills / d.n}))
+    .sort((x, y) => y.n - x.n || y.wr - x.wr);
+}
+function duoTable(list) {
+  return list.length ? `<div class="scroll"><table><thead><tr><th>Пара</th><th>Матчей</th><th>Победы</th><th>Средний руин пары</th><th>Убийств вместе</th><th>Умерли вдвоём</th></tr></thead><tbody>
+    ${list.map(d => `<tr><td><b>${esc(d.a.name)}</b> + <b>${esc(d.b.name)}</b></td><td class="num">${d.n}</td>
+      <td class="num ${d.wr >= .5 ? 'ok' : 'no'}">${d.wins}/${d.n} · ${Math.round(d.wr * 100)}%</td>
+      <td><span class="bar"><i style="width:${d.ruin}%;background:${ruinColor(d.ruin)}"></i></span><b class="num">${d.ruin.toFixed(0)}</b></td>
+      <td class="num">${d.killsPer.toFixed(1)}/матч</td><td class="num ${d.diedPer >= 1.5 ? 'no' : ''}">${d.diedPer.toFixed(1)}/матч</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="muted" style="font-size:12px">«Убийств вместе» — убийство, где участвовали оба (килл или ассист). «Умерли вдвоём» — смерти с разницей до 6 секунд рядом друг с другом.</p>`
+    : '<p class="muted">Пока нет матчей, где двое из компании играли в одной команде.</p>';
 }
 
 function requestLink(text) {
@@ -404,6 +429,7 @@ function showCrew() {
       ${award('Ульта в кармане', 'Чаще всех умирает с готовой ультой (за матч)', c => c.ultd, v => v.toFixed(1))}
       ${award('Хозяин линии', 'Лучшая разница душ на линии к 10:00', c => c.lane, v => (v > 0 ? '+' : '') + k(v))}
     </div></section>` : ''}
+    <section class="panel"><div class="eyebrow">Кто с кем</div><h2 style="margin:4px 0 12px">Дуэты</h2>${duoTable(duoStats())}</section>
     <section class="panel">
       <h3>Состав</h3>
       <div class="row">${FRIENDS.map(f => `<a class="pill" href="#p${f.account_id}" style="text-decoration:none">${esc(f.name)}${f.local ? ' · только у тебя' : ''}</a>`).join('')}</div>
@@ -436,6 +462,8 @@ function showPlayer(acc) {
         <div class="kpi"><b class="${c.ultd >= 1 ? 'no' : ''}">${fix(c.ultd)}</b><span>смертей с ультой/матч</span></div>
         <div class="kpi"><b>${c.lane == null ? '—' : (c.lane > 0 ? '+' : '') + k(c.lane)}</b><span>линия к 10:00</span></div>
         <div class="kpi"><b>${c.camp == null ? '—' : c.camp.toFixed(0) + '%'}</b><span>душ с кемпов</span></div>
+        <div class="kpi"><b>${c.join == null ? '—' : c.join.toFixed(1) + ' с'}</b><span>вход в драку после начала</span></div>
+        <div class="kpi"><b>${c.lh10 == null ? '—' : c.lh10.toFixed(0)}</b><span>ластхитов к 10:00</span></div>
       </div>` : `<p class="muted">Разобранных матчей пока нет.${link ? ' Нажми «Подгрузить свежие матчи».' : ''}</p>`}
     </section>
     ${c.n ? `<div class="layout" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
@@ -451,6 +479,7 @@ function showPlayer(acc) {
         <h3 style="margin-top:14px">Сильные стороны</h3>
         ${c.good.length ? c.good.slice(0, 8).map(([t, n]) => `<div class="hbar"><span>${esc(t)}</span><div class="track"><i style="width:${n / c.good[0][1] * 100}%;background:var(--jade)"></i></div><span class="num">${(n / c.n).toFixed(1)}/матч</span></div>`).join('') : '<p class="muted">Нет данных</p>'}
       </section></div>
+      <section class="panel"><h3>Напарники</h3>${duoTable(duoStats().filter(d => d.a.account_id === acc || d.b.account_id === acc))}</section>
       <section><h2 style="margin-bottom:10px">Матчи</h2><div id="feed"></div></section>` : ''}
   </div>`;
   const feed = document.getElementById('feed');
@@ -534,6 +563,9 @@ async function showMatch(id) {
       <div class="controls">
         <button id="play" aria-label="Пуск">▶</button><span id="clock"></span>
         ${[1, 4, 8, 16, 32].map(s => `<button data-sp="${s}" class="${s === speed ? 'on' : ''}">${s}x</button>`).join('')}
+        <span class="spacer"></span>
+        <button id="zin" aria-label="Приблизить">+</button><button id="zout" aria-label="Отдалить">−</button>
+        <button id="zfollow">Следить</button><button id="zreset">Вся карта</button>
       </div>
       <div class="layers">
         ${[['camps', 'Кемпы'], ['zips', 'Зиплайны'], ['shops', 'Магазины'], ['statues', 'Статуи'], ['heat', 'Тепловая карта игрока'], ['trail', 'След'], ['names', 'Имена']]
@@ -552,6 +584,19 @@ async function showMatch(id) {
   const tl = document.getElementById('timeline'), tctx = tl.getContext('2d');
   const W = map.width, R = MAPDATA?.radius || 10752;
   const px = x => (x + R) / (2 * R) * W, py = y => (R - y) / (2 * R) * W;
+  const view = {z: 1, cx: W / 2, cy: W / 2, follow: false};
+  const sx = x => (px(x) - view.cx) * view.z + W / 2, sy = y => (py(y) - view.cy) * view.z + W / 2;
+  function clampView() {
+    view.z = Math.min(6, Math.max(1, view.z));
+    const half = W / 2 / view.z;
+    view.cx = Math.min(W - half, Math.max(half, view.cx)); view.cy = Math.min(W - half, Math.max(half, view.cy));
+  }
+  // positions are sampled once per second; interpolate so playback moves smoothly
+  function posAt(tr, tt) {
+    const i = Math.min(N - 1, Math.floor(tt)), j = Math.min(N - 1, i + 1), f = tt - i;
+    if (!tr.alive[i] || !tr.alive[j] || Math.hypot(tr.x[j] - tr.x[i], tr.y[j] - tr.y[i]) > 1500) return [tr.x[i], tr.y[i]];
+    return [tr.x[i] + (tr.x[j] - tr.x[i]) * f, tr.y[i] + (tr.y[j] - tr.y[i]) * f];
+  }
 
   const bg = document.createElement('canvas'); bg.width = bg.height = W;
   function buildBg() {
@@ -626,26 +671,30 @@ async function showMatch(id) {
 
   function draw() {
     const i = Math.min(N - 1, Math.floor(t));
+    if (view.follow) { const [wx, wy] = posAt(r.track[sel], t); view.cx = sx(wx); view.cy = sy(wy); clampView() }
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0b0f0e'; ctx.fillRect(0, 0, W, W);
+    ctx.setTransform(view.z, 0, 0, view.z, W / 2 - view.cx * view.z, W / 2 - view.cy * view.z);
     ctx.drawImage(bg, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (layers.camps) (MAPDATA?.camps || []).forEach((c, ci) => {
       const alive = (campAlive[ci] || []).some(([a, b]) => t >= a && t <= b);
       const im = img(c.icon), s = {strong: 26, medium: 22, weak: 18, vault: 22}[c.kind] || 20;
       ctx.globalAlpha = alive ? 1 : .25;
       ctx.fillStyle = c.kind === 'vault' ? '#3a2f12' : '#1c2a22'; ctx.strokeStyle = c.kind === 'vault' ? '#e0b24a' : '#7fd19b';
-      ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px(c.x), py(c.y), s / 2 + 3, 0, 7); ctx.fill(); ctx.stroke();
-      if (im?.complete && im.naturalWidth) ctx.drawImage(im, px(c.x) - s / 2, py(c.y) - s / 2, s, s);
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(sx(c.x), sy(c.y), s / 2 + 3, 0, 7); ctx.fill(); ctx.stroke();
+      if (im?.complete && im.naturalWidth) ctx.drawImage(im, sx(c.x) - s / 2, sy(c.y) - s / 2, s, s);
       ctx.globalAlpha = 1;
     });
-    (r.objective_spots || []).forEach((o, oi) => objShape(o, px(o.x), py(o.y), t >= spotDead[oi]));
+    (r.objective_spots || []).forEach((o, oi) => objShape(o, sx(o.x), sy(o.y), t >= spotDead[oi]));
     for (const e of r.events || []) if (e.kind === 'rift' && t >= e.t && t - e.t < 20) {
-      ctx.strokeStyle = TEAM[e.team]?.color || '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px(e.x), py(e.y), 22, 0, 7); ctx.stroke();
+      ctx.strokeStyle = TEAM[e.team]?.color || '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(sx(e.x), sy(e.y), 22, 0, 7); ctx.stroke();
     }
     for (const f of r.fights) if (t >= f.t && t <= f.end + 2) {
       ctx.strokeStyle = 'rgba(236,227,207,.4)'; ctx.setLineDash([6, 6]); ctx.lineWidth = 2; ctx.beginPath();
-      ctx.arc(px(f.x), py(f.y), 1500 / (2 * R) * W, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      ctx.arc(sx(f.x), sy(f.y), 1500 / (2 * R) * W * view.z, 0, 7); ctx.stroke(); ctx.setLineDash([]);
     }
     for (const kl of r.kills) if (t >= kl.t && t - kl.t < 10) {
-      const a = 1 - (t - kl.t) / 10, x = px(kl.x), y = py(kl.y);
+      const a = 1 - (t - kl.t) / 10, x = sx(kl.x), y = sy(kl.y);
       ctx.strokeStyle = `rgba(212,85,63,${a})`; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(x - 9, y - 9); ctx.lineTo(x + 9, y + 9); ctx.moveTo(x + 9, y - 9); ctx.lineTo(x - 9, y + 9); ctx.stroke();
     }
@@ -654,7 +703,7 @@ async function showMatch(id) {
       ctx.strokeStyle = 'rgba(236,227,207,.55)'; ctx.lineWidth = 2.5; ctx.beginPath();
       for (let j = Math.max(0, i - 25), gap = true; j <= i; j++) {
         if (!st.alive[j]) { gap = true; continue }
-        gap ? ctx.moveTo(px(st.x[j]), py(st.y[j])) : ctx.lineTo(px(st.x[j]), py(st.y[j])); gap = false;
+        gap ? ctx.moveTo(sx(st.x[j]), sy(st.y[j])) : ctx.lineTo(sx(st.x[j]), sy(st.y[j])); gap = false;
       }
       ctx.stroke();
     }
@@ -662,7 +711,7 @@ async function showMatch(id) {
     for (const e of r.events || []) { if (e.t > t) break; if (e.kind === 'urn_pick') urnHero = e.hero; if (e.kind === 'urn_done' || e.kind === 'urn_drop') urnHero = null }
     const order = [...r.players].sort((a, b) => (a.hero_id === sel) - (b.hero_id === sel));
     for (const p of order) {
-      const tr = r.track[p.hero_id], x = px(tr.x[i]), y = py(tr.y[i]), alive = tr.alive[i];
+      const tr = r.track[p.hero_id], [wx, wy] = posAt(tr, t), x = sx(wx), y = sy(wy), alive = tr.alive[i];
       const isSel = p.hero_id === sel, rad = isSel ? 19 : 15;
       ctx.globalAlpha = alive ? 1 : .3;
       ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
@@ -690,14 +739,16 @@ async function showMatch(id) {
     }
     if (focus && focus.x != null) {
       ctx.strokeStyle = focus.good ? '#5fbf8f' : '#d4553f'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(px(focus.x), py(focus.y), 36 + 6 * Math.sin(performance.now() / 150), 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(sx(focus.x), sy(focus.y), 36 + 6 * Math.sin(performance.now() / 150), 0, 7); ctx.stroke();
     }
     document.getElementById('clock').textContent = `${clock(t)} / ${r.clock}`;
     drawTimeline();
   }
 
   function seek(sec, f) {
-    t = Math.max(0, sec); playing = false; document.getElementById('play').textContent = '▶'; focus = f || null; draw();
+    t = Math.max(0, sec); playing = false; document.getElementById('play').textContent = '▶'; focus = f || null;
+    if (f && f.x != null && view.z > 1 && !view.follow) { view.cx = px(f.x); view.cy = py(f.y); clampView() }
+    draw();
     if (innerWidth < 1100) map.scrollIntoView({behavior: 'smooth', block: 'center'});
   }
 
@@ -731,7 +782,7 @@ async function showMatch(id) {
       <div class="row">${heroIcon(p.hero_id, 'l')}<div><div class="eyebrow">${esc(p.hero)} · ${TEAM[p.team].name}</div>
         <div style="font:400 24px/1.1 var(--display)">${esc(label(p))}</div></div><span class="spacer"></span>
         <span class="pill ${verdictCls(p.verdict)}">${p.verdict} · руин ${p.ruin}</span></div>
-      <div class="tabs">${[['overview', 'Обзор'], ['moments', `Моменты ${p.moments.length}`], ['combat', 'Бой'], ['items', 'Предметы'], ['farm', 'Фарм'], ['fights', `Драки ${p.fights.length}`], ['ult', 'Ульта']]
+      <div class="tabs">${[['overview', 'Обзор'], ['moments', `Моменты ${p.moments.length}`], ['lane', 'Линия'], ['combat', 'Бой'], ['items', 'Предметы'], ['farm', 'Фарм'], ['fights', `Драки ${p.fights.length}`], ['ult', 'Ульта']]
         .map(([k2, l]) => `<button data-tab="${k2}" class="${tab === k2 ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     let body = '';
     if (tab === 'overview') {
@@ -752,6 +803,7 @@ async function showMatch(id) {
       ${Object.keys(z).length ? `<h3 style="margin-top:12px">Где проводил время</h3>
         <div class="split">${zorder.map(([n, c]) => z[n] ? `<i style="width:${z[n]}%;background:${c}" title="${n}: ${z[n]}%"></i>` : '').join('')}</div>
         <div class="legend">${zorder.map(([n, c]) => z[n] ? `<span><i style="background:${c}"></i>${n} ${z[n]}%</span>` : '').join('')}</div>` : ''}
+      ${benchBlock(p)}
       ${p.tips.length ? `<h3 style="margin-top:12px">Что улучшить</h3><ul class="tips">${p.tips.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p class="muted">Явных системных проблем не найдено.</p>'}
       <h3 style="margin-top:12px">Самое важное</h3>
       ${momentList([...p.moments].sort((a, b) => b.weight - a.weight).slice(0, 6).sort((a, b) => a.t - b.t))}`;
@@ -761,6 +813,20 @@ async function showMatch(id) {
       <div class="filters">${[['all', 'Все'], ['bad', 'Ошибки'], ['good', 'Хорошее']].map(([k2, l]) => `<button data-f="${k2}" class="${filter === k2 ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="filters">${CATS.map(([k2, l]) => `<button data-c="${k2}" class="${cat === k2 ? 'on' : ''}">${l} ${k2 === 'all' ? p.moments.length : p.moments.filter(m => catOf(m) === k2).length}</button>`).join('')}</div>
       ${momentList(list)}`;
+    } else if (tab === 'lane') {
+      const L = p.lane_min;
+      if (!L) body = stale; else {
+        const foes = (L.foes || []).map(h => heroIcon(h, 's') + esc(heroName(h))).join(', ');
+        body = `
+        <p class="muted" style="margin:0 0 8px">Против: ${foes || '—'} (среднее по паре)</p>
+        <canvas class="chart" id="laneChart" style="height:160px"></canvas>
+        <div class="legend"><span><i style="background:var(--jade)"></i>впереди по душам</span><span><i style="background:var(--blood)"></i>позади</span></div>
+        <div class="scroll"><table><thead><tr><th>Минута</th><th>Души</th><th>У врагов</th><th>Разница</th><th>Ластхиты</th><th>У врагов</th><th>Денаи</th></tr></thead><tbody>
+          ${L.m.map((mm, i) => { const d = L.me.nw[i] - L.foe.nw[i];
+            return `<tr class="click" data-t="${mm * 60}"><td class="num">${mm}:00</td><td class="num">${k(L.me.nw[i])}</td><td class="num muted">${k(L.foe.nw[i])}</td>
+            <td class="num ${d >= 0 ? 'ok' : 'no'}">${d > 0 ? '+' : ''}${d}</td><td class="num">${L.me.lh[i]}</td><td class="num muted">${L.foe.lh[i]}</td><td class="num">${L.me.dn[i]}</td></tr>` }).join('')}
+        </tbody></table></div>`;
+      }
     } else if (tab === 'combat') {
       const c = p.combat;
       if (!c) body = stale; else {
@@ -816,10 +882,10 @@ async function showMatch(id) {
       <h3 style="margin-top:12px">Фарм по ходу матча</h3>
       ${momentList(p.moments.filter(m => catOf(m) === 'farm'))}`;
     } else if (tab === 'fights') {
-      body = p.fights.length ? `<div class="scroll"><table><thead><tr><th>Время</th><th>Итог</th><th>Счёт</th><th>K+A</th><th>Урон</th><th>% ком.</th><th>Получил</th><th>Умер</th><th>Ульта</th></tr></thead><tbody>
+      body = p.fights.length ? `<div class="scroll"><table><thead><tr><th>Время</th><th>Итог</th><th>Счёт</th><th>Вход</th><th>K+A</th><th>Урон</th><th>% ком.</th><th>Получил</th><th>Умер</th><th>Ульта</th></tr></thead><tbody>
         ${p.fights.map(f => `<tr class="click" data-t="${f.t}"><td class="num">${f.clock}</td>
           <td class="${f.res === 'W' ? 'ok' : f.res === 'L' ? 'no' : 'meh'}">${f.res === 'W' ? 'победа' : f.res === 'L' ? 'поражение' : 'размен'}</td>
-          <td class="num">${f.score}</td><td class="num">${f.ka}</td><td class="num">${k(f.dmg)}</td><td class="num">${f.share}%</td><td class="num">${k(f.taken)}</td>
+          <td class="num">${f.score}</td><td class="num ${f.join >= 6 ? 'no' : ''}">${f.join == null ? '—' : f.join + ' с'}</td><td class="num">${f.ka}</td><td class="num">${k(f.dmg)}</td><td class="num">${f.share}%</td><td class="num">${k(f.taken)}</td>
           <td>${f.died ? '<span class="no">да</span>' : '—'}</td>
           <td>${{used: '<span class="ok">прожал</span>', ready: '<span class="no">была готова</span>', cd: '<span class="muted">на кд</span>', none: '<span class="muted">нет</span>'}[f.ult]}</td></tr>`).join('')}
         </tbody></table></div>
@@ -850,7 +916,21 @@ async function showMatch(id) {
       seek(m.t - 5, {x: m.x ?? tr.x[i], y: m.y ?? tr.y[i], good: m.good});
     });
     if (tab === 'farm') drawFarm(p);
+    if (tab === 'lane' && p.lane_min) drawLane(p.lane_min);
     if (tab === 'ult') drawUlt(p);
+  }
+
+  function benchBlock(p) {
+    const b = BENCH?.heroes?.[p.hero_id];
+    if (!b) return '';
+    const mine = r.duration / 60, avgMin = BENCH.duration / 60, s = p.stats;
+    const rows = [['Убийства', s.kills / mine, b.k / avgMin, 1], ['Смерти', s.deaths / mine, b.d / avgMin, -1], ['Ассисты', s.assists / mine, b.a / avgMin, 1],
+                  ['Души', s.net_worth / mine, b.nw / avgMin, 1], ['Урон по героям', s.hero_damage / mine, b.dmg / avgMin, 1], ['Ластхиты', s.last_hits / mine, b.lh / avgMin, 1]];
+    return `<h3 style="margin-top:12px">Против среднего ${esc(p.hero)}</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:4px">В минуту, против всех матчей на этом герое за 30 дней (${k(b.matches)} матчей, винрейт ${Math.round(b.winrate * 100)}%).</div>
+      ${rows.map(([n, me, avg, dir]) => { const pct = avg ? (me / avg - 1) * 100 : 0, good = pct * dir >= 0;
+        return `<div class="hbar"><span>${n}</span><div class="track"><i style="width:${Math.min(100, me / Math.max(me, avg) * 100)}%;background:${good ? 'var(--jade)' : 'var(--blood)'}"></i></div>
+          <span class="num ${good ? 'ok' : 'no'}">${pct > 0 ? '+' : ''}${pct.toFixed(0)}%</span></div>` }).join('')}`;
   }
 
   function momentList(list) {
@@ -869,6 +949,19 @@ async function showMatch(id) {
       {data: r.track[p.hero_id].nw, color: '#ece3cf', width: 2.5},
     ], N, {marks: p.moments.filter(m => m.kind === 'farm').map(m => ({t: m.t, color: m.good ? '#5fbf8f88' : '#d4553f88'}))});
   }
+  function drawLane(L) {
+    const c = document.getElementById('laneChart'), dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    c.width = w * dpr; c.height = h * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr);
+    const d = L.m.map((_, i) => L.me.nw[i] - L.foe.nw[i]), max = Math.max(500, ...d.map(Math.abs)), mid = h / 2, bw = (w - 40) / d.length;
+    g.strokeStyle = '#2a3531'; g.beginPath(); g.moveTo(30, mid); g.lineTo(w, mid); g.stroke();
+    g.font = '11px "Roboto Condensed", sans-serif'; g.fillStyle = '#98a196';
+    g.fillText('+' + k(max), 0, 12); g.fillText('-' + k(max), 0, h - 4);
+    d.forEach((v, i) => {
+      const x = 34 + i * bw, bh = v / max * (mid - 10);
+      g.fillStyle = v >= 0 ? '#5fbf8f' : '#d4553f'; g.fillRect(x, v >= 0 ? mid - bh : mid, bw - 6, Math.abs(bh));
+      g.fillStyle = '#98a196'; g.fillText(L.m[i] + ':00', x + bw / 2 - 12, v >= 0 ? mid + 12 : mid - 4);
+    });
+  }
   function drawUlt(p) {
     const c = document.getElementById('ultChart'), dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
     c.width = w * dpr; c.height = h * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr);
@@ -880,6 +973,33 @@ async function showMatch(id) {
     g.fillStyle = '#111';
     (p.ult.cast_times || []).forEach(ct => { const [mm, ss] = ct.split(':').map(Number); g.fillRect((mm * 60 + ss) / N * w - 1.5, 4, 3, h - 8) });
   }
+
+  const toCanvas = e => { const rc = map.getBoundingClientRect(); return [(e.clientX - rc.left) * W / rc.width, (e.clientY - rc.top) * W / rc.height] };
+  function zoomAt(f, mx = W / 2, my = W / 2) {
+    const bx = view.cx + (mx - W / 2) / view.z, by = view.cy + (my - W / 2) / view.z;
+    view.z *= f; clampView();
+    if (!view.follow) { view.cx = bx - (mx - W / 2) / view.z; view.cy = by - (my - W / 2) / view.z; clampView() }
+    draw();
+  }
+  map.addEventListener('wheel', e => { e.preventDefault(); const [mx, my] = toCanvas(e); zoomAt(e.deltaY < 0 ? 1.25 : 0.8, mx, my) }, {passive: false});
+  let drag = null;
+  map.addEventListener('pointerdown', e => { drag = toCanvas(e); map.setPointerCapture(e.pointerId); map.style.cursor = 'grabbing' });
+  map.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const [mx, my] = toCanvas(e);
+    view.follow = false; document.getElementById('zfollow').classList.remove('on');
+    view.cx -= (mx - drag[0]) / view.z; view.cy -= (my - drag[1]) / view.z; drag = [mx, my]; clampView(); draw();
+  });
+  map.addEventListener('pointerup', () => { drag = null; map.style.cursor = '' });
+  map.addEventListener('dblclick', e => { const [mx, my] = toCanvas(e); zoomAt(2, mx, my) });
+  document.getElementById('zin').onclick = () => zoomAt(1.5);
+  document.getElementById('zout').onclick = () => zoomAt(1 / 1.5);
+  document.getElementById('zreset').onclick = () => { view.z = 1; view.follow = false; document.getElementById('zfollow').classList.remove('on'); clampView(); draw() };
+  document.getElementById('zfollow').onclick = e => {
+    view.follow = !view.follow; e.target.classList.toggle('on', view.follow);
+    if (view.follow && view.z < 2.5) view.z = 2.5;
+    clampView(); draw();
+  };
 
   document.getElementById('play').onclick = e => { playing = !playing; e.target.textContent = playing ? '❚❚' : '▶'; if (t >= N - 1) t = 0 };
   app.querySelectorAll('[data-sp]').forEach(bt => bt.onclick = () => {
