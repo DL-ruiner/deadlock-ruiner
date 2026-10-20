@@ -10,6 +10,7 @@
 """
 import argparse
 import json
+import sys
 import webbrowser
 from pathlib import Path
 
@@ -68,7 +69,7 @@ def run_file(path, start_time=None):
 
 def run_match(match_id, keep=False, start_time=None):
     if (REPORTS / f"{match_id}.json").exists():
-        print(f"match {match_id}: already analyzed")
+        print(f"match {match_id}: already analyzed", file=sys.stderr)
         return
     demo = fetch_demo(match_id)
     try:
