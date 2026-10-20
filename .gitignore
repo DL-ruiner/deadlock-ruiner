@@ -7,3 +7,4 @@ web/reports/
 site_files.txt
 .claude/
 .sync_state.json
+.sync.log

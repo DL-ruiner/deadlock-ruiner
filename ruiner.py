@@ -24,6 +24,8 @@ WEB = ROOT / "web"
 REPORTS = WEB / "reports"
 
 
+SHORT_MATCH_S = 900  # shorter games are too noisy for averages
+
 SUMMARY_STATS = ("kills", "deaths", "assists", "net_worth", "spm", "dpm", "kp", "hs_pct", "lane_diff", "isolated_deaths",
                  "missed_fights", "ult_deaths", "ult_unused", "camp_share", "dead_pct", "objective_damage", "healing",
                  "first_t3", "farm_bad", "join_s", "lh10")
@@ -45,6 +47,7 @@ def rebuild_index():
         r = json.loads(f.read_text(encoding="utf-8"))
         rows.append({
             "match_id": r["match_id"], "duration": r["duration"], "clock": r["clock"], "winner": r["winner"],
+            "short": r["duration"] < SHORT_MATCH_S,
             "start_time": r.get("start_time"), "ruiner": r["ruiner"], "mvp": r["mvp"],
             "pairs": [{k: x[k] for k in ("a", "b", "died", "kills")} for x in r.get("pairs", [])],
             "players": [{k: p[k] for k in ("account_id", "name", "hero", "hero_id", "team", "won", "ruin", "verdict")}

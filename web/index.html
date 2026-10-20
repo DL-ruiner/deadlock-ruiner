@@ -216,7 +216,7 @@ window.addEventListener('hashchange', route);
 
 /* ---------------- aggregates ---------------- */
 function gamesOf(acc) {
-  return index.flatMap(m => m.players.filter(p => p.account_id === acc).map(p => ({m, p}))).sort((a, b) => a.m.match_id - b.m.match_id);
+  return index.filter(m => !m.short).flatMap(m => m.players.filter(p => p.account_id === acc).map(p => ({m, p}))).sort((a, b) => a.m.match_id - b.m.match_id);
 }
 function crewStats(f) {
   const g = gamesOf(f.account_id), n = g.length;
@@ -237,7 +237,7 @@ function crewStats(f) {
 function duoStats() {
   const crew = new Map(FRIENDS.map(f => [f.account_id, f]));
   const pairs = {};
-  for (const m of index) for (const pr of m.pairs || []) {
+  for (const m of index) if (!m.short) for (const pr of m.pairs || []) {
     if (!crew.has(pr.a) || !crew.has(pr.b)) continue;
     const [a, b] = pr.a < pr.b ? [pr.a, pr.b] : [pr.b, pr.a];
     const pa = m.players.find(p => p.account_id === a), pb = m.players.find(p => p.account_id === b);
@@ -306,12 +306,12 @@ function renderFeed(el, list) {
     const mine = m.players.filter(p => crewIds.has(p.account_id));
     const date = m.start_time ? new Date(m.start_time * 1000).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'}) : '';
     const won = mine.length ? mine[0].won : null;
-    return `<div class="panel mcard ${won === true ? 'win' : won === false ? 'loss' : ''}" data-mid="${m.match_id}" tabindex="0">
+    return `<div class="panel mcard ${won === true ? 'win' : won === false ? 'loss' : ''}" data-mid="${m.match_id}" tabindex="0" ${m.short ? 'style="opacity:.75"' : ''}>
       <div class="row"><span class="res ${won === true ? 'ok' : won === false ? 'no' : ''}">${won === null ? TEAM[m.winner]?.name : won ? 'Победа' : 'Поражение'}</span>
         <span class="spacer"></span><span class="muted num" style="font-size:13px">${date ? date + ' · ' : ''}${m.clock}</span></div>
-      <div class="row" style="font-size:13px;gap:14px">
+      ${m.short ? '<div class="muted" style="font-size:13px">Короткий матч: в рейтинг и средние не идёт</div>' : `<div class="row" style="font-size:13px;gap:14px">
         ${mvp ? `<span>${heroIcon(mvp.hero_id, 's')} MVP <b>${esc(mvp.name)}</b></span>` : ''}
-        ${ru ? `<span>${heroIcon(ru.hero_id, 's')} руинер <b class="no">${esc(ru.name)}</b></span>` : ''}</div>
+        ${ru ? `<span>${heroIcon(ru.hero_id, 's')} руинер <b class="no">${esc(ru.name)}</b></span>` : ''}</div>`}
       ${mine.length ? `<div class="row" style="gap:6px">${mine.map(p => `<span class="pill ${verdictCls(p.verdict)}">${heroIcon(p.hero_id, 's')}${esc(friendOf(p.account_id)?.name || p.name)} · <span class="num">${p.kda}</span> · ${p.ruin}</span>`).join('')}</div>` : ''}
       <div class="muted num" style="font-size:12px">#${m.match_id}</div>
     </div>`}).join('')}</div>`;
@@ -495,6 +495,7 @@ function showHow() {
       <p>Каждую демку матча мы разбираем покадрово: позиции героев, урон, души, ульты, покупки, объекты. По этим данным ищутся моменты: смерти, драки, провалы фарма, непрожатые ульты.</p>
       <p>Руинометр 0–100 сравнивает игрока с его же командой по 13 метрикам: души, урон, участие в убийствах, урон по объектам, линия, смерти, смерти в одиночку, пропущенные драки, время мёртвым, накопленные души, провалы фарма, смерти с готовой ультой и непрожатые ульты. 50 — средний вклад, больше — тянул команду вниз.</p>
       <p class="muted">Это эвристика, а не приговор: смерть в одиночку бывает осознанной жертвой, а сплит-пуш выглядит как пропуск драки.</p>
+      <p class="muted">Матчи короче 15 минут показываются, но в средние, рейтинг, номинации и дуэты не идут: за такое время цифры почти ничего не значат.</p>
     </section>
     <section class="panel"><h3>Правила моментов</h3><div class="scroll"><table><tbody>
       ${[['Смерть в одиночку', 'в радиусе 3000 нет живых союзников, а врагов двое и больше'],
@@ -555,8 +556,9 @@ async function showMatch(id) {
     <h2>Матч <span class="num">#${r.match_id}</span></h2>
     <span class="muted num">${r.clock}</span>
     <span>Победа: <b class="${TEAM[r.winner].cls}">${TEAM[r.winner].name}</b></span>
+    ${r.duration < 900 ? '<span class="pill warn">Короткий матч: руинометр неточный и в статистику не идёт</span>' : `
     ${mvp ? `<span class="pill good">${heroIcon(mvp.hero_id, 's')}MVP: ${esc(label(mvp))}</span>` : ''}
-    ${ruiner ? `<span class="pill bad">${heroIcon(ruiner.hero_id, 's')}Руинер: ${esc(label(ruiner))}</span>` : ''}
+    ${ruiner ? `<span class="pill bad">${heroIcon(ruiner.hero_id, 's')}Руинер: ${esc(label(ruiner))}</span>` : ''}`}
   </div>
   <div class="layout">
     <div>

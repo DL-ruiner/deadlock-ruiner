@@ -8,6 +8,7 @@ so GitHub only downloads and analyzes. Nothing heavy runs locally.
 """
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -65,10 +66,20 @@ def main():
         print("Steam quota used up, try again in an hour")
         return
     request = "sync " + " ".join(parts)
-    subprocess.run(["gh", "workflow", "run", "ruiner.yml", "-R", REPO, "-f", f"request={request}"], check=True)
+    gh = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"
+    subprocess.run([gh, "workflow", "run", "ruiner.yml", "-R", REPO, "-f", f"request={request}"], check=True,
+                   capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     STATE.write_text(json.dumps(sorted(sent | set(found))))
     print(f"sent {len(parts)} matches ({len(resolved)} with replay links), the site updates in ~5-10 minutes")
 
 
 if __name__ == "__main__":
-    main()
+    if sys.stdout is None:  # pythonw from Task Scheduler: keep a small log instead
+        import datetime
+        log = (ROOT / ".sync.log").open("a", encoding="utf-8")
+        sys.stdout = sys.stderr = log
+        print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    try:
+        main()
+    except Exception as e:
+        print("error:", e)
