@@ -49,6 +49,8 @@ def embed(r, crew):
                                "inline": False})
     else:
         fields.append({"name": "Короткий матч", "value": "Меньше 15 минут, в статистику не идёт", "inline": False})
+    fields.append({"name": "Полный разбор", "value": f"[Открыть на сайте]({SITE}#m{r['match_id']})"
+                   + "".join(f" · [{crew[p['account_id']]}]({SITE}#p{p['account_id']})" for p in mine), "inline": False})
     out = {"title": f"{title} · {r['clock']}", "url": f"{SITE}#m{r['match_id']}", "fields": fields,
            "color": 0x5FBF8F if won else 0xD4553F if won is False else 0xC8A25A,
            "footer": {"text": f"Deadlock Ruiner · матч {r['match_id']}"}}

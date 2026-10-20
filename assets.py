@@ -20,6 +20,7 @@ META = Path(__file__).parent / "web" / "reports"
 KEEP_ENTITIES = ("shops", "soul_urn_spawns", "teleporters", "bridge_buffs", "golden_statues",
                  "healing_snacks", "unstable_rifts", "bells")
 META_MAX_AGE = 3 * 86400
+GUIDE_VERSION = 3  # bump when counter rules change so the bot rebuilds them
 
 
 def grab(url, sub):
@@ -99,7 +100,7 @@ COUNTER_ITEMS = {
             ["Metal Skin", "Plated Armor", "Return Fire", "Weapon Shielding", "Bullet Resilience", "Disarming Hex", "Inhibitor"]),
     "spirit": ("основной урон — способности",
                ["Spirit Shielding", "Spirit Resilience", "Spellbreaker", "Spirit Sap", "Silencer", "Witchmail", "Dispel Magic"]),
-    "channel": ("ульта — канал, её сбивает стан или заморозка", ["Knockdown", "Arctic Blast"]),
+    "channel": ("ульта — канал, её сбивает стан, заморозка или проклятие", ["Knockdown", "Cursed Relic", "Arctic Blast"]),
     "cc": ("много контроля: стан, сон, обездвиживание", ["Unstoppable", "Debuff Reducer", "Reactive Barrier", "Divine Barrier", "Dispel Magic"]),
     "mobile": ("очень подвижный, его надо замедлять и сажать на землю",
                ["Slowing Hex", "Slowing Bullets", "Mystic Slow", "Cold Front", "Phantom Strike"]),
@@ -116,11 +117,87 @@ TRAIT_TAGS = {
     "mobile": {"Mobility", "Acrobatics", "Nimble", "Slippery", "Evasive", "Traveller"},
     "cc": {"Disruptor", "Disruption", "Disruptive", "Hexing", "Apprehender"},
 }
-# mechanics the ability data does not expose
+# mechanics the ability data does not expose (Haze and Dynamo ults are interrupted by stuns per guides)
 TRAIT_FIX = {
-    "Haze": {"channel"}, "Lash": {"cc"}, "Dynamo": {"cc"}, "Bebop": {"cc"}, "Mo & Krill": {"cc"},
+    "Haze": {"channel"}, "Lash": {"cc"}, "Dynamo": {"cc", "channel"}, "Bebop": {"cc"}, "Mo & Krill": {"cc"},
     "Wraith": {"cc"}, "Paradox": {"cc"}, "Infernus": {"spirit"}, "Kelvin": {"heal"},
 }
+NOT_CHANNEL = {"Victor"}  # his "channel" is a self-revive, not something to interrupt
+
+# Per-hero picks from The Backdash counter guide (April 2026); names mapped to the current patch.
+GUIDE_SOURCE = "thebackdash.com"
+GUIDE_PICKS = {
+    "Abrams": ["Slowing Hex", "Reactive Barrier", "Toxic Bullets", "Decay", "Crippling Headshot"],
+    "Apollo": ["Slowing Hex", "Healbane", "Counterspell", "Silence Wave", "Witchmail"],
+    "Bebop": ["Reactive Barrier", "Dispel Magic", "Counterspell", "Warp Stone", "Knockdown"],
+    "Billy": ["Rebuttal", "Counterspell", "Metal Skin", "Cursed Relic", "Bullet Resilience"],
+    "Calico": ["Rebuttal", "Slowing Hex", "Healbane", "Counterspell", "Reactive Barrier"],
+    "Celeste": ["Slowing Hex", "Knockdown", "Silence Wave", "Spirit Resilience", "Witchmail"],
+    "The Doorman": ["Stamina Mastery", "Reactive Barrier", "Counterspell", "Spellbreaker"],
+    "Drifter": ["Mystic Slow", "Suppressor", "Dispel Magic", "Counterspell", "Metal Skin"],
+    "Dynamo": ["Slowing Hex", "Healbane", "Silence Wave", "Knockdown", "Unstoppable"],
+    "Graves": ["Healbane", "Dispel Magic", "Metal Skin", "Bullet Resilience"],
+    "Grey Talon": ["Spirit Shielding", "Knockdown", "Counterspell", "Spellbreaker", "Witchmail"],
+    "Haze": ["Suppressor", "Reactive Barrier", "Metal Skin", "Dispel Magic", "Plated Armor"],
+    "Holliday": ["Spirit Shielding", "Counterspell", "Warp Stone", "Knockdown", "Spellbreaker"],
+    "Infernus": ["Slowing Hex", "Suppressor", "Dispel Magic", "Spirit Resilience", "Plated Armor"],
+    "Ivy": ["Healbane", "Enduring Speed", "Knockdown", "Counterspell", "Silence Wave"],
+    "Kelvin": ["Healbane", "Enduring Speed", "Spirit Resilience", "Dispel Magic", "Toxic Bullets"],
+    "Lady Geist": ["Dispel Magic", "Silence Wave", "Decay", "Toxic Bullets", "Crippling Headshot"],
+    "Lash": ["Spirit Shielding", "Slowing Hex", "Counterspell", "Knockdown", "Spellbreaker"],
+    "McGinnis": ["Healbane", "Suppressor", "Knockdown", "Warp Stone", "Juggernaut"],
+    "Mina": ["Slowing Hex", "Silence Wave", "Phantom Strike", "Plated Armor", "Spellbreaker"],
+    "Mirage": ["Slowing Hex", "Dispel Magic", "Decay", "Cursed Relic", "Plated Armor"],
+    "Mo & Krill": ["Debuff Reducer", "Reactive Barrier", "Dispel Magic", "Toxic Bullets", "Cheat Death"],
+    "Paige": ["Reactive Barrier", "Dispel Magic", "Counterspell", "Spirit Resilience", "Spellbreaker"],
+    "Paradox": ["Reactive Barrier", "Warp Stone", "Dispel Magic", "Spellbreaker", "Spirit Resilience"],
+    "Pocket": ["Slowing Hex", "Counterspell", "Silence Wave", "Spellbreaker", "Divine Barrier"],
+    "Rem": ["Monster Rounds", "Healbane", "Slowing Hex", "Counterspell", "Silence Wave"],
+    "Seven": ["Reactive Barrier", "Spirit Resilience", "Dispel Magic", "Knockdown", "Witchmail"],
+    "Shiv": ["Spirit Sap", "Dispel Magic", "Decay", "Toxic Bullets", "Crippling Headshot"],
+    "Silver": ["Metal Skin", "Bullet Resilience", "Dispel Magic", "Decay", "Silence Wave"],
+    "Sinclair": ["Slowing Hex", "Reactive Barrier", "Counterspell", "Spellbreaker"],
+    "Venator": ["Debuff Reducer", "Reactive Barrier", "Metal Skin", "Dispel Magic", "Counterspell"],
+    "Victor": ["Healbane", "Silence Wave", "Crippling Headshot", "Silencer", "Cursed Relic"],
+    "Vindicta": ["Suppressor", "Knockdown", "Dispel Magic", "Phantom Strike", "Metal Skin"],
+    "Viscous": ["Rebuttal", "Silence Wave", "Cursed Relic", "Unstoppable"],
+    "Vyper": ["Extra Health", "Suppressor", "Reactive Barrier", "Dispel Magic", "Metal Skin"],
+    "Warden": ["Stamina Mastery", "Healbane", "Suppressor", "Dispel Magic", "Juggernaut"],
+    "Wraith": ["Slowing Hex", "Suppressor", "Spirit Resilience", "Ethereal Shift", "Divine Barrier"],
+    "Yamato": ["Healbane", "Counterspell", "Silence Wave", "Spellbreaker", "Crippling Headshot"],
+}
+# Hero-specific reasons (FollowChain guide and ability texts); the rest fall back to ITEM_ROLE.
+HERO_NOTES = {
+    ("Dynamo", "Knockdown"): "сбивает подготовку его ульты", ("Dynamo", "Unstoppable"): "спасает от сингулярности и ульты",
+    ("Bebop", "Reactive Barrier"): "барьер, когда он хукнул или подбросил", ("Haze", "Metal Skin"): "её пули и ульта не проходят",
+    ("Haze", "Plated Armor"): "отражает часть пуль её ульты", ("Seven", "Knockdown"): "обрывает его ульту-канал",
+    ("Lash", "Slowing Hex"): "глушит его рывки и граппл", ("Lash", "Knockdown"): "сбивает его в воздухе и обрывает ульту",
+    ("Vindicta", "Knockdown"): "сбивает её из полёта", ("Grey Talon", "Knockdown"): "сбивает его из воздуха",
+    ("Ivy", "Knockdown"): "сбивает её из полёта", ("Wraith", "Ethereal Shift"): "прожми прямо перед её ультой",
+    ("Pocket", "Silence Wave"): "не даёт ему сбежать", ("Mo & Krill", "Reactive Barrier"): "барьер под подбросом и ультой",
+    ("Kelvin", "Silence Wave"): "не даёт поставить купол", ("Lady Geist", "Silence Wave"): "не даёт прожать ульту",
+    ("Rem", "Monster Rounds"): "больше урона по призывам", ("McGinnis", "Suppressor"): "режет урон её турелей и пушки",
+}
+ITEM_ROLE = {
+    "Counterspell": "парирование блокирует следующую способность врага", "Suppressor": "твой урон способностями режет скорострельность врага",
+    "Cursed Relic": "проклятие прерывает, сайленсит и дизармит", "Enduring Speed": "ослабляет замедления врага",
+    "Stamina Mastery": "лишний рывок в воздухе, чтобы уйти", "Monster Rounds": "больше урона по призывам и крипам",
+    "Reactive Barrier": "барьер, когда тебя станят или обездвиживают", "Dispel Magic": "снимает эффекты врага, кроме ульты",
+    "Debuff Reducer": "короче контроль и дебаффы врага", "Slowing Hex": "замедляет и глушит способности передвижения",
+    "Silence Wave": "сайленс выключает его способности", "Knockdown": "стан сбивает каст и сажает на землю",
+    "Metal Skin": "иммунитет к пулям", "Plated Armor": "шанс отразить пули", "Bullet Resilience": "сопротивление пулям на низком HP",
+    "Spirit Resilience": "сопротивление способностям на низком HP", "Spirit Shielding": "барьер от урона способностями",
+    "Spellbreaker": "гасит следующий сильный удар способностью", "Witchmail": "урон способностями по тебе откатывает твои кулдауны",
+    "Healbane": "антихил", "Toxic Bullets": "антихил и урон от процента HP", "Decay": "урон от текущего HP врага",
+    "Crippling Headshot": "антихил и минус сопротивления", "Inhibitor": "режет урон и лечение врага",
+    "Warp Stone": "телепорт из-под контроля", "Ethereal Shift": "неуязвимость, чтобы переждать ульту врага",
+    "Divine Barrier": "снимает дебаффы с союзника и даёт барьер", "Phantom Strike": "прыжок к врагу, тянет вниз и дизармит",
+    "Rebuttal": "парирование ударов врага лечит и возвращает урон", "Unstoppable": "иммунитет к стану, сайленсу и сну",
+    "Spirit Sap": "режет силу способностей врага", "Silencer": "пули накапливают сайленс", "Mystic Slow": "замедление через урон способностями",
+    "Cheat Death": "переживает бурст врага", "Juggernaut": "больше живучести", "Extra Health": "больше здоровья против бурста",
+}
+GUIDE_FIX = {"Bullet Resistance": "Bullet Resilience", "Silence Glyph": "Silence Wave"}
+
 CC_KEY = re.compile(r"^(Stun|Silence|Sleep|Root|Disarm|Chain|Immobilize|Freeze|Hex)\w*Duration$", re.I)
 MOB_KEY = re.compile(r"(Dash|Leap|Fly|Flight|Hover|Teleport|Grapple|JumpVelocity|Glide|Blink)", re.I)
 NOT_SELF = re.compile(r"(Reduction|Slow|Enemy|Resist|Penalty|Threshold|Range)", re.I)
@@ -145,7 +222,8 @@ def hero_traits(hero, abilities, stats, hp_cut, shots_cut):
     ult = _nz_keys(abilities["signature4"]) if "signature4" in abilities else set()
     tags = set(hero.get("tags") or [])
     tr = set()
-    if "AbilityChannelTime" in ult:
+    ult_text = json.dumps((abilities.get("signature4") or {}).get("description") or {}).lower()
+    if "channel" in ult_text and hero["name"] not in NOT_CHANNEL:
         tr.add("channel")
     if any(CC_KEY.search(k) for k in allk):
         tr.add("cc")
@@ -184,7 +262,14 @@ def build_guide(heroes_raw, items_raw, hero_stats, stat_rows):
         abilities = {s: by_class[c] for s, c in (h.get("items") or {}).items() if s.startswith("signature") and c in by_class}
         traits = hero_traits(h, abilities, {"hp": hp.get(h["id"], 0), "shots": shots.get(h["id"], 0)}, hp_cut, shots_cut)
         lift = {r[0]: r[2] for r in stat_rows.get(h["id"], [])}
-        score, why = {}, {}
+        score, why, src = {}, {}, {}
+        picks = [GUIDE_FIX.get(n, n) for n in GUIDE_PICKS.get(h["name"], [])]
+        for pos, name in enumerate(picks):
+            iid = by_name.get(name)
+            if iid:
+                score.setdefault(iid, []).append(6 + 0.4 * (len(picks) - pos))
+                why.setdefault(iid, []).append(HERO_NOTES.get((h["name"], name)) or ITEM_ROLE.get(name, "советуют гайды"))
+                src[iid] = "guide"
         for t in traits:
             reason, names = COUNTER_ITEMS[t]
             for pos, name in enumerate(names):
@@ -192,12 +277,16 @@ def build_guide(heroes_raw, items_raw, hero_stats, stat_rows):
                 if not iid:
                     continue
                 score.setdefault(iid, []).append(TRAIT_WEIGHT[t] + 0.3 * (len(names) - pos) / len(names))
-                why.setdefault(iid, []).append(reason)
+                if src.get(iid) in ("guide", "both"):
+                    src[iid] = "both"
+                else:
+                    why.setdefault(iid, []).append(reason)
+                    src[iid] = "mech"
         # the strongest reason counts fully, extra reasons add a little
         score = {i: max(w) + 0.35 * (sum(w) - max(w)) + max(0, min(3, lift.get(i, 0))) / 3 for i, w in score.items()}
         best = sorted(score, key=lambda i: -score[i])[:10]
         guide[h["id"]] = {"traits": traits,
-                          "items": [{"id": i, "why": why[i], "lift": lift.get(i)} for i in best]}
+                          "items": [{"id": i, "why": why[i], "lift": lift.get(i), "src": src[i]} for i in best]}
     return guide
 
 
@@ -206,7 +295,7 @@ def meta(force=False):
     META.mkdir(parents=True, exist_ok=True)
     old = META / "counters.json"
     saved = json.loads(old.read_text(encoding="utf-8")) if old.exists() else {}
-    if not force and "guide" in saved and time.time() - saved.get("generated", 0) < META_MAX_AGE:
+    if not force and saved.get("v") == GUIDE_VERSION and time.time() - saved.get("generated", 0) < META_MAX_AGE:
         print("meta is fresh")
         return
     since = {"min_unix_timestamp": int(time.time()) - 30 * 86400}
@@ -234,7 +323,7 @@ def meta(force=False):
         r.raise_for_status()
 
     base = item_stats()
-    counters = {"generated": int(time.time()),
+    counters = {"generated": int(time.time()), "v": GUIDE_VERSION,
                 "base": {i: {"wr": round(x["wins"] / x["matches"], 4), "m": x["matches"], "buy": round(x["avg_buy_time_s"] or 0)}
                          for i, x in base.items() if x["matches"] >= 2000},
                 "vs": {}}

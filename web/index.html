@@ -287,6 +287,8 @@ const TRAIT_RU = {channel: 'ульта-канал', heal: 'сильно лечи
 function guideVs(hero, n = 6) { return (COUNTERS?.guide?.[hero]?.items || []).filter(x => ITEMS[x.id]).slice(0, n) }
 function traitsOf(hero) { return COUNTERS?.guide?.[hero]?.traits || [] }
 function statVs(hero, n = 6) { return (COUNTERS?.vs?.[hero] || []).filter(r => ITEMS[r[0]] && r[2] > 0.5 && (ITEMS[r[0]].tier || 0) <= 3).slice(0, n) }
+const srcBadge = x => x.src === 'mech' ? '<span class="pill" style="font-size:11px" title="подобрано по механикам героя">механика</span>'
+  : '<span class="pill good" style="font-size:11px" title="есть в гайде контрпиков (thebackdash.com)">гайд</span>';
 const traitChips = hero => traitsOf(hero).map(t => `<span class="pill">${TRAIT_RU[t] || t}</span>`).join(' ');
 
 function requestLink(text) {
@@ -534,11 +536,11 @@ function showItems() {
   app.innerHTML = `<div class="stack">
     <section class="panel">
       <div class="eyebrow">Контрпики</div><h2 style="margin:4px 0 6px">Что брать против героя</h2>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">Подбор по механикам: что у героя за урон, есть ли ульта-канал, контроль, лечение, мобильность. Каждый предмет объяснён. Внизу — что ещё по статистике чаще выигрывает против него.</p>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">Сначала предметы из гайда контрпиков (<a href="https://thebackdash.com/gaming/deadlock-complete-counter-item-guide/" target="_blank" rel="noopener">The Backdash</a>), потом добор по механикам героя: тип урона, ульта-канал, контроль, лечение, мобильность. У каждого предмета написано, зачем он. Внизу — что ещё по статистике чаще выигрывает против героя.</p>
       <div class="heroes-pick">${heroIds.map(h => `<button data-h="${h}" class="${h === itemsHero ? 'on' : ''}">${HEROES[h].sm ? `<img src="${HEROES[h].sm}" alt="">` : ''}${esc(heroName(h))}</button>`).join('')}</div>
       <div class="row" style="margin-top:14px;gap:8px">${heroIcon(itemsHero)}<h3 style="margin:0">Против ${esc(heroName(itemsHero))}</h3>${traitChips(itemsHero)}</div>
       ${guideVs(itemsHero, 10).map(x => `<div class="counter" data-item="${x.id}" style="cursor:pointer">${itemIcon(x.id)}
-        <div><b>${esc(ITEMS[x.id].name)}</b> <span class="muted num" style="font-size:12px">${SLOT[ITEMS[x.id].slot] || ''} · тир ${ITEMS[x.id].tier} · ${k(ITEMS[x.id].cost)}</span>
+        <div><b>${esc(ITEMS[x.id].name)}</b> ${srcBadge(x)} <span class="muted num" style="font-size:12px">${SLOT[ITEMS[x.id].slot] || ''} · тир ${ITEMS[x.id].tier} · ${k(ITEMS[x.id].cost)}</span>
         <div class="muted" style="font-size:12px">${esc(x.why.join('; '))}</div></div>
         ${x.lift > 0.3 ? `<span class="lift" title="по статистике">+${x.lift.toFixed(1)}</span>` : '<span></span>'}</div>`).join('') || '<p class="muted">Пока нет данных.</p>'}
       ${statVs(itemsHero).length ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">Что ещё по статистике чаще выигрывает против ${esc(heroName(itemsHero))}</summary>
@@ -941,9 +943,9 @@ async function showMatch(id) {
         <h3 style="margin-top:14px">По каждому врагу</h3>
         ${enemies.map(e => `<div style="margin:10px 0"><div class="row" style="gap:6px">${heroIcon(e.hero_id, 's')}<b>${esc(e.hero)}</b><span class="muted" style="font-size:12px">${esc(e.name)}</span>${traitChips(e.hero_id)}</div>
           ${guideVs(e.hero_id, 4).map(x => `<div class="row" style="gap:6px;margin:3px 0 0 28px;font-size:13px">${itemIcon(x.id).replace('class="ico', 'style="width:20px;height:20px;padding:1px" class="ico')}
-            <b>${esc(ITEMS[x.id].name)}</b>${boughtBy(p, x.id) ? ' <span class="ok">✓ ты</span>' : mates.some(o => boughtBy(o, x.id)) ? ' <span class="meh">✓ команда</span>' : ''}
+            <b>${esc(ITEMS[x.id].name)}</b> ${srcBadge(x)}${boughtBy(p, x.id) ? ' <span class="ok">✓ ты</span>' : mates.some(o => boughtBy(o, x.id)) ? ' <span class="meh">✓ команда</span>' : ''}
             <span class="muted" style="font-size:12px">${esc(x.why[0])}</span></div>`).join('') || '<span class="muted">—</span>'}</div>`).join('')}
-        <p class="muted" style="font-size:12px">Подбор по механикам героев. <a href="#items">Справочник предметов и контрпиков →</a></p>`;
+        <p class="muted" style="font-size:12px">«Гайд» — из гайда контрпиков, «механика» — подобрано по способностям героя. <a href="#items">Справочник предметов и контрпиков →</a></p>`;
     } else if (tab === 'combat') {
       const c = p.combat;
       if (!c) body = stale; else {
