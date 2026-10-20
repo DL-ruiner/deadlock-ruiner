@@ -77,10 +77,16 @@ def waiting():
         return []
 
 
+class QuotaError(RuntimeError):
+    def __init__(self, wait):
+        super().__init__(f"quota, retry in {wait}s")
+        self.wait = wait
+
+
 def demo_url(mid):
     r = requests.get(f"{API}/matches/{mid}/salts", timeout=30)
     if r.status_code in (429, 503):
-        raise RuntimeError("quota")
+        raise QuotaError(int(r.headers.get("Retry-After") or 600))
     r.raise_for_status()
     return r.json().get("demo_url")
 
@@ -90,6 +96,7 @@ def main():
     if isinstance(state, list):  # old format: plain list of sent ids
         state = {"sent": state}
     sent = set(state.get("sent", []))
+    quota_until = state.get("quota_until", 0)  # every request while blocked extends the block, so wait it out
     tries = {int(k): v for k, v in state.get("tries", {}).items()}  # match -> [attempts, last_ts]
     now = time.time()
     running = game_running()
@@ -112,17 +119,20 @@ def main():
     if "--dry" in sys.argv or not (ready or queue):
         return
 
-    parts, quota = [], True
+    parts, quota = [], now >= quota_until
     for mid, finished_at in ready + [(m, None) for m in queue]:
-        url = None
+        url, answered = None, False
         if quota:
             try:
                 url = demo_url(mid)
-            except RuntimeError:
+                answered = True
+            except QuotaError as e:
                 quota = False
+                quota_until = now + e.wait + 30
             except Exception as e:
                 print(f"{mid}: {e}")
-            if not url:  # unknown to the API yet: back off instead of burning the hourly quota
+                answered = True
+            if answered and not url:  # unknown to the API yet: back off instead of burning the hourly quota
                 n_try, _ = tries.get(mid, [0, 0])
                 tries[mid] = [n_try + 1, now]
         if url:
@@ -137,8 +147,9 @@ def main():
                        check=True, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         print(f"sent {len(parts)} matches, the site updates in ~5-10 minutes")
     elif not quota:
-        print("Steam quota used up, next try in a few minutes")
-    STATE.write_text(json.dumps({"sent": sorted(sent), "tries": {str(m): t for m, t in tries.items() if m not in sent}}))
+        print(f"Steam quota used up, waiting until {datetime.datetime.fromtimestamp(quota_until):%H:%M}")
+    STATE.write_text(json.dumps({"sent": sorted(sent), "quota_until": quota_until,
+                                 "tries": {str(m): t for m, t in tries.items() if m not in sent}}))
 
 
 if __name__ == "__main__":
