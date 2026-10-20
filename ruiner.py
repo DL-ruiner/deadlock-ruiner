@@ -23,6 +23,19 @@ WEB = ROOT / "web"
 REPORTS = WEB / "reports"
 
 
+SUMMARY_STATS = ("kills", "deaths", "assists", "net_worth", "spm", "dpm", "kp", "hs_pct", "lane_diff", "isolated_deaths",
+                 "missed_fights", "ult_deaths", "ult_unused", "camp_share", "dead_pct", "objective_damage", "healing",
+                 "first_t3", "farm_bad")
+
+
+def _count_titles(moments, good):
+    out = {}
+    for mo in moments:
+        if mo["good"] == good:
+            out[mo["title"]] = out.get(mo["title"], 0) + 1
+    return out
+
+
 def rebuild_index():
     rows = []
     for f in sorted(REPORTS.glob("*.json")):
@@ -33,7 +46,9 @@ def rebuild_index():
             "match_id": r["match_id"], "duration": r["duration"], "clock": r["clock"], "winner": r["winner"],
             "start_time": r.get("start_time"), "ruiner": r["ruiner"], "mvp": r["mvp"],
             "players": [{k: p[k] for k in ("account_id", "name", "hero", "hero_id", "team", "won", "ruin", "verdict")}
-                        | {"kda": f"{p['stats']['kills']}/{p['stats']['deaths']}/{p['stats']['assists']}"}
+                        | {"kda": f"{p['stats']['kills']}/{p['stats']['deaths']}/{p['stats']['assists']}",
+                           "s": {k: p["stats"].get(k) for k in SUMMARY_STATS},
+                           "mist": _count_titles(p["moments"], False), "good": _count_titles(p["moments"], True)}
                         for p in r["players"]],
         })
     rows.sort(key=lambda r: r["match_id"], reverse=True)
@@ -123,6 +138,12 @@ def run_request(text):
         todo = [(m["match_id"], m["start_time"]) for m in sorted(r.json(), key=lambda m: -m["start_time"])[:5]]
     else:
         todo = [(int(x), None) for x in dict.fromkeys(re.findall(r"\d{8,}", text))][:5]
+        if re.search(r"(?i)reanalyze|переразобрать", text):
+            for mid, _ in todo:
+                old = REPORTS / f"{mid}.json"
+                if old.exists():
+                    todo[todo.index((mid, None))] = (mid, json.loads(old.read_text(encoding="utf-8")).get("start_time"))
+                    old.unlink()
     if not todo:
         print("Не нашёл ID матча. Напиши в заголовке номер матча, например: match 119848007")
     for mid, st in todo:

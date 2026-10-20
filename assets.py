@@ -43,7 +43,15 @@ def main():
         heroes[h["id"]] = {"name": h["name"], "mm": grab(img.get("minimap_image_webp") or img.get("minimap_image"), "heroes"),
                            "sm": grab(img.get("icon_image_small_webp") or img.get("icon_image_small"), "heroes")}
     (OUT / "heroes.json").write_text(json.dumps(heroes), encoding="utf-8")
-    print(f"map: {len(camps)} camps, heroes: {len(heroes)}")
+
+    items = {}
+    for it in requests.get(f"{API}/items", timeout=60).json():
+        if it.get("type") != "upgrade" or not it.get("shopable"):
+            continue
+        items[it["id"]] = {"name": it["name"], "slot": it.get("item_slot_type"), "tier": it.get("item_tier"),
+                           "cost": it.get("cost"), "img": grab(it.get("image_webp") or it.get("image"), "items")}
+    (OUT / "items.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    print(f"map: {len(camps)} camps, heroes: {len(heroes)}, items: {len(items)}")
 
 
 if __name__ == "__main__":

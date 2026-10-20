@@ -493,6 +493,65 @@ def analyze(path):
                       max(1, sum(s["gold"] for s in sources[h]))) for h in heroes}
     lobby_camp = statistics.median(camp_share.values())
 
+    # ---------- combat breakdown ----------
+    hero_dmg = d.damage.filter(pl.col("attacker_hero_id").is_in(heroes) & pl.col("victim_hero_id").is_in(heroes)
+                               & (pl.col("attacker_hero_id") != pl.col("victim_hero_id")))
+    combat = {h: {"by_target": {}, "by_source": {}, "split": {"bullet": 0, "spirit": 0, "melee": 0}, "hs": 0, "hits": 0}
+              for h in heroes}
+    for r in hero_dmg.group_by("attacker_hero_id", "victim_hero_id").agg(pl.col("damage").sum()).to_dicts():
+        a_, v_ = r["attacker_hero_id"], r["victim_hero_id"]
+        if m.team(a_) != m.team(v_):
+            combat[a_]["by_target"][v_] = r["damage"]
+            combat[v_]["by_source"][a_] = r["damage"]
+    kinds = {1: "bullet", 2: "spirit", 3: "melee"}
+    for r in hero_dmg.group_by("attacker_hero_id", "citadel_type").agg(pl.col("damage").sum()).to_dicts():
+        k_ = kinds.get(r["citadel_type"])
+        if k_:
+            combat[r["attacker_hero_id"]]["split"][k_] += r["damage"]
+    shots = hero_dmg.filter((pl.col("citadel_type") == 1) & (pl.col("hitgroup_id") >= 0))
+    for r in shots.group_by("attacker_hero_id").agg(pl.len().alias("n"),
+                                                     pl.col("hitgroup_id").is_in([1, 19]).sum().alias("hs")).to_dicts():
+        combat[r["attacker_hero_id"]]["hits"] = r["n"]
+        combat[r["attacker_hero_id"]]["hs"] = r["hs"]
+    kill_matrix = {h: {"killed": {}, "killed_by": {}} for h in heroes}
+    for k in kills:
+        a_, v_ = k["attacker_hero_id"], k["victim_hero_id"]
+        if a_ in m.by_hero and v_ in m.by_hero and m.team(a_) != m.team(v_):
+            kill_matrix[a_]["killed"][v_] = kill_matrix[a_]["killed"].get(v_, 0) + 1
+            kill_matrix[v_]["killed_by"][a_] = kill_matrix[v_]["killed_by"].get(a_, 0) + 1
+
+    items_cat = {}
+    items_json = MAP_JSON.parent / "items.json"
+    if items_json.exists():
+        items_cat = {int(k_): v for k_, v in json.loads(items_json.read_text(encoding="utf-8")).items()}
+    purchases = {h: [] for h in heroes}
+    owned = {h: [] for h in heroes}
+    for r in d.item_purchases.sort("tick").to_dicts():
+        h, iid = r["hero_id"], r["ability_id"]
+        if h not in purchases or iid not in items_cat or r["change"] not in ("purchased", "sold"):
+            continue
+        sold = r["change"] == "sold"
+        purchases[h].append({"t": round(m.sec(r["tick"]), 1), "id": iid, "sold": sold})
+        if sold:
+            if iid in owned[h]:
+                owned[h].remove(iid)
+        else:
+            owned[h].append(iid)
+    first_t3 = {}
+    for h in heroes:
+        t3 = [x["t"] for x in purchases[h] if not x["sold"] and (items_cat[x["id"]].get("tier") or 0) >= 3]
+        first_t3[h] = round(t3[0]) if t3 else None
+
+    zones = {h: {} for h in heroes}
+    for h in heroes:
+        cnt = {}
+        for i, (x, y) in enumerate(pos[h]):
+            if alive[h][i] and (x or y):
+                z_ = m.zone(h, (x, y))
+                cnt[z_] = cnt.get(z_, 0) + 1
+        tot = sum(cnt.values()) or 1
+        zones[h] = {z_: round(100 * c / tot) for z_, c in cnt.items()}
+
     # ---------- per-player stats ----------
     final = {r["hero_id"]: r for r in m.pt.filter(pl.col("tick") <= m.end_tick).sort("tick")
              .group_by("hero_id").last().to_dicts()}
@@ -542,6 +601,8 @@ def analyze(path):
             "camps": (farm_timeline[h][-1]["nk"] if farm_timeline[h] else 0) or 0, "camp_share": round(100 * camp_share[h]),
             "farm_bad": farm_bad[h], "ult_idle": ult_stats[h]["idle_pct"], "ult_deaths": deaths_with_ult[h],
             "ult_unused": ult_fight[h]["unused"],
+            "hs_pct": round(100 * combat[h]["hs"] / combat[h]["hits"]) if combat[h]["hits"] >= 20 else None,
+            "first_t3": first_t3[h],
         }
 
     # ---------- ruinometer ----------
@@ -595,6 +656,10 @@ def analyze(path):
             tips.append(f"Линию проиграл на {-s['lane_diff']} душ к 10:00. Меньше трейдов в минус, больше ластхитов.")
         if s["isolated_deaths"] >= 3:
             tips.append(f"{s['isolated_deaths']} смертей в одиночку. Без инфы о врагах не ходи глубоко на чужую половину.")
+        t3_med = statistics.median([v for v in first_t3.values() if v] or [0])
+        if s["first_t3"] and t3_med and s["first_t3"] - t3_med >= 180:
+            tips.append(f"Первый предмет 3-го тира купил на {_clock(s['first_t3'])}, а в среднем по лобби на {_clock(t3_med)}. "
+                        "Меньше копи души и не дроби покупки.")
         if s["missed_fights"] >= 3:
             tips.append(f"Пропущено тимфайтов: {s['missed_fights']}. Команда дралась без тебя.")
         out_players.append({
@@ -605,6 +670,12 @@ def analyze(path):
             "why_bad": [lbl for _, lbl in worst], "why_good": [lbl for _, lbl in best], "tips": tips,
             "ult": ult_stats[h], "fights": fight_rows[h],
             "farm": {"sources": sources[h], "timeline": farm_timeline[h]},
+            "combat": {"by_target": {str(k_): v for k_, v in combat[h]["by_target"].items()},
+                       "by_source": {str(k_): v for k_, v in combat[h]["by_source"].items()},
+                       "split": combat[h]["split"], "hs": combat[h]["hs"], "hits": combat[h]["hits"],
+                       "killed": {str(k_): v for k_, v in kill_matrix[h]["killed"].items()},
+                       "killed_by": {str(k_): v for k_, v in kill_matrix[h]["killed_by"].items()}},
+            "items": purchases[h], "build": owned[h], "zones": zones[h],
             "moments": sorted(moments[h], key=lambda x: x["t"]),
         })
     losers = [p for p in out_players if not p["won"]]
