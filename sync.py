@@ -21,7 +21,8 @@ ROOT = Path(__file__).parent
 STATE = ROOT / ".sync_state.json"
 REPO = json.loads((ROOT / "web" / "config.json").read_text(encoding="utf-8"))["repo"]
 API = "https://api.deadlock-api.com/v1"
-REPLAY_DELAY = 5 * 60  # Valve needs a few minutes after the match to publish the replay
+REPLAY_DELAY = 2 * 60  # Valve needs a moment after the match to publish the replay
+RETRY_STEPS = [0, 5, 10, 20, 40, 60]  # minutes between attempts for a match the API doesn't know yet
 GIVE_UP_AFTER = 3 * 3600
 STAMP = re.compile(r"^(\d\d)/(\d\d) (\d\d):(\d\d):(\d\d)")
 
@@ -89,6 +90,7 @@ def main():
     if isinstance(state, list):  # old format: plain list of sent ids
         state = {"sent": state}
     sent = set(state.get("sent", []))
+    tries = {int(k): v for k, v in state.get("tries", {}).items()}  # match -> [attempts, last_ts]
     now = time.time()
     running = game_running()
 
@@ -98,7 +100,9 @@ def main():
             if mid in sent:
                 continue
             finished_at = end or (None if running else log.stat().st_mtime)
-            if finished_at and now - finished_at >= REPLAY_DELAY:
+            n_try, last = tries.get(mid, [0, 0])
+            wait = RETRY_STEPS[min(n_try, len(RETRY_STEPS) - 1)] * 60
+            if finished_at and now - finished_at >= REPLAY_DELAY and now - last >= wait:
                 ready.append((mid, finished_at))
             else:
                 later.append(mid)
@@ -118,6 +122,9 @@ def main():
                 quota = False
             except Exception as e:
                 print(f"{mid}: {e}")
+            if not url:  # unknown to the API yet: back off instead of burning the hourly quota
+                n_try, _ = tries.get(mid, [0, 0])
+                tries[mid] = [n_try + 1, now]
         if url:
             parts.append(f"{mid}={url}")
             sent.add(mid)
@@ -131,7 +138,7 @@ def main():
         print(f"sent {len(parts)} matches, the site updates in ~5-10 minutes")
     elif not quota:
         print("Steam quota used up, next try in a few minutes")
-    STATE.write_text(json.dumps({"sent": sorted(sent)}))
+    STATE.write_text(json.dumps({"sent": sorted(sent), "tries": {str(m): t for m, t in tries.items() if m not in sent}}))
 
 
 if __name__ == "__main__":

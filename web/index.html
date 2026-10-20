@@ -287,6 +287,23 @@ const TRAIT_RU = {channel: 'ульта-канал', heal: 'сильно лечи
 function guideVs(hero, n = 6) { return (COUNTERS?.guide?.[hero]?.items || []).filter(x => ITEMS[x.id]).slice(0, n) }
 function traitsOf(hero) { return COUNTERS?.guide?.[hero]?.traits || [] }
 function statVs(hero, n = 6) { return (COUNTERS?.vs?.[hero] || []).filter(r => ITEMS[r[0]] && r[2] > 0.5 && (ITEMS[r[0]].tier || 0) <= 3).slice(0, n) }
+// "if the enemy..." buckets on the items page; keys match "vs" in items_ru.json
+const VS_CATS = [
+  ['gun', 'Больно бьют пулями', 'Иммунитет и сопротивление к пулям, барьеры от оружия, обезоруживание и снижение скорострельности.'],
+  ['spirit', 'Больно бьют способностями', 'Сопротивление и барьеры от способностей, сайленс и снижение их силы.'],
+  ['burst', 'Ваншотят бурстом', 'Неуязвимость, барьеры и запас здоровья, чтобы пережить быструю атаку.'],
+  ['cc', 'Много контроля', 'Против станов, сайленса, сна и замедлений: очистка, иммунитет, барьер под контролем.'],
+  ['heal', 'Враг постоянно лечится', 'Антихил: режут входящее лечение.'],
+  ['tank', 'Толстые танки', 'Урон от процента HP и снижение сопротивлений.'],
+  ['mobile', 'Убегают и прыгают по карте', 'Замедления и блок способностей передвижения.'],
+  ['fly', 'Летают', 'Станы и гравитация, которые сажают на землю.'],
+  ['channel', 'Долгая ульта-канал', 'Станы, заморозка и проклятие прерывают каст.'],
+  ['summons', 'Призывы и турели', 'Урон по призывам и по нескольким целям.'],
+  ['melee', 'Лезут в ближний бой', 'Парирование и наказание за ближнюю атаку.'],
+  ['stealth', 'Уходят в невидимость', 'Подсветка сквозь стены.'],
+];
+const VS_LABEL = Object.fromEntries(VS_CATS.map(([k2, l]) => [k2, l.toLowerCase()]));
+const vsChips = it => (it.vs || []).map(v => `<span class="pill" style="font-size:11px">${VS_LABEL[v] || v}</span>`).join(' ');
 const srcBadge = x => x.src === 'mech' ? '<span class="pill" style="font-size:11px" title="подобрано по механикам героя">механика</span>'
   : '<span class="pill good" style="font-size:11px" title="есть в гайде контрпиков (thebackdash.com)">гайд</span>';
 const traitChips = hero => traitsOf(hero).map(t => `<span class="pill">${TRAIT_RU[t] || t}</span>`).join(' ');
@@ -513,15 +530,21 @@ function showPlayer(acc) {
         <h3 style="margin-top:14px">Сильные стороны</h3>
         ${c.good.length ? c.good.slice(0, 8).map(([t, n]) => `<div class="hbar"><span>${esc(t)}</span><div class="track"><i style="width:${n / c.good[0][1] * 100}%;background:var(--jade)"></i></div><span class="num">${(n / c.n).toFixed(1)}/матч</span></div>`).join('') : '<p class="muted">Нет данных</p>'}
       </section></div>
+      <section class="panel"><h3>Где умирает</h3>
+        <div class="chips" style="margin-bottom:8px">${[['all', 'Весь матч'], ['lane', 'Лайнинг до 10:00'], ['mid', '10–25 мин'], ['late', 'После 25 мин']].map(([v, l]) => `<button class="chip ${deathPhase === v ? 'on' : ''}" data-dp="${v}">${l}</button>`).join('')}</div>
+        <canvas id="deathMap" width="800" height="800" style="width:100%;max-width:520px;aspect-ratio:1;display:block;border-radius:12px;border:1px solid var(--rule);background:#0b0f0e"></canvas>
+        <p class="muted" style="font-size:12px">Каждая точка — смерть в одном из матчей. Сторона карты зависит от команды: игроки Hidden King начинают снизу, Archmother — сверху.</p></section>
       <section class="panel"><h3>Напарники</h3>${duoTable(duoStats().filter(d => d.a.account_id === acc || d.b.account_id === acc))}</section>
       <section><h2 style="margin-bottom:10px">Матчи</h2><div id="feed"></div></section>` : ''}
   </div>`;
   const feed = document.getElementById('feed');
   if (feed) renderFeed(feed, index.filter(m => m.players.some(p => p.account_id === acc)));
+  app.querySelectorAll('[data-dp]').forEach(b => b.onclick = () => { deathPhase = b.dataset.dp; showPlayer(acc) });
+  drawDeathMap(c.g);
 }
 
 /* ---------------- items ---------------- */
-let itemsHero = null, itemsSlot = 'all', itemsTier = 0, itemsQuery = '', itemsOpen = null;
+let itemsHero = null, itemsSlot = 'all', itemsTier = 0, itemsQuery = '', itemsOpen = null, itemsMore = false, itemsCat = 'gun';
 function showItems() {
   const heroIds = Object.keys(COUNTERS?.vs || {}).map(Number).filter(h => HEROES[h]).sort((a, b) => heroName(a).localeCompare(heroName(b)));
   if (itemsHero == null) itemsHero = heroIds[0];
@@ -539,14 +562,22 @@ function showItems() {
       <p class="muted" style="margin:0 0 10px;font-size:13px">Сначала предметы из гайда контрпиков (<a href="https://thebackdash.com/gaming/deadlock-complete-counter-item-guide/" target="_blank" rel="noopener">The Backdash</a>), потом добор по механикам героя: тип урона, ульта-канал, контроль, лечение, мобильность. У каждого предмета написано, зачем он. Внизу — что ещё по статистике чаще выигрывает против героя.</p>
       <div class="heroes-pick">${heroIds.map(h => `<button data-h="${h}" class="${h === itemsHero ? 'on' : ''}">${HEROES[h].sm ? `<img src="${HEROES[h].sm}" alt="">` : ''}${esc(heroName(h))}</button>`).join('')}</div>
       <div class="row" style="margin-top:14px;gap:8px">${heroIcon(itemsHero)}<h3 style="margin:0">Против ${esc(heroName(itemsHero))}</h3>${traitChips(itemsHero)}</div>
-      ${guideVs(itemsHero, 10).map(x => `<div class="counter" data-item="${x.id}" style="cursor:pointer">${itemIcon(x.id)}
+      ${guideVs(itemsHero, itemsMore ? 14 : 8).map(x => `<div class="counter" data-item="${x.id}" style="cursor:pointer">${itemIcon(x.id)}
         <div><b>${esc(ITEMS[x.id].name)}</b> ${srcBadge(x)} <span class="muted num" style="font-size:12px">${SLOT[ITEMS[x.id].slot] || ''} · тир ${ITEMS[x.id].tier} · ${k(ITEMS[x.id].cost)}</span>
         <div class="muted" style="font-size:12px">${esc(x.why.join('; '))}</div></div>
         ${x.lift > 0.3 ? `<span class="lift" title="по статистике">+${x.lift.toFixed(1)}</span>` : '<span></span>'}</div>`).join('') || '<p class="muted">Пока нет данных.</p>'}
+      ${(COUNTERS?.guide?.[itemsHero]?.items || []).length > 8 ? `<button class="btn ghost" id="imore" style="margin-top:8px">${itemsMore ? 'Свернуть' : 'Ещё подходит'}</button>` : ''}
       ${statVs(itemsHero).length ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer">Что ещё по статистике чаще выигрывает против ${esc(heroName(itemsHero))}</summary>
         ${statVs(itemsHero).map(r => `<div class="counter" data-item="${r[0]}" style="cursor:pointer">${itemIcon(r[0])}<div><b>${esc(ITEMS[r[0]].name)}</b>
           <div class="muted" style="font-size:12px">винрейт ${(r[1] * 100).toFixed(1)}% против него · ${k(r[3])} матчей</div></div><span class="lift">+${r[2].toFixed(1)} п.п.</span></div>`).join('')}
         <p class="muted" style="font-size:12px">Это корреляция, а не причина: предмет может «выигрывать», потому что его берут на героях, которым и так хорошо против этого врага.</p></details>` : ''}
+    </section>
+    <section class="panel">
+      <div class="eyebrow">По ситуации</div><h2 style="margin:4px 0 8px">Если враг…</h2>
+      <div class="chips" style="margin-bottom:8px">${VS_CATS.map(([k2, l]) => `<button class="chip ${itemsCat === k2 ? 'on' : ''}" data-cat="${k2}">${l}</button>`).join('')}</div>
+      <p class="muted" style="margin:0 0 8px;font-size:13px">${VS_CATS.find(c => c[0] === itemsCat)[2]}</p>
+      <div class="catalog">${Object.entries(ITEMS).filter(([, it]) => (it.vs || []).includes(itemsCat)).sort((a, b) => a[1].tier - b[1].tier || a[1].cost - b[1].cost)
+        .map(([id, it]) => `<button class="icard" data-item="${id}">${itemIcon(id)}<div><b>${esc(it.name)}</b><div class="muted" style="font-size:12px">тир ${it.tier} · ${k(it.cost)} — ${esc((it.ru || '').split('.')[0])}</div></div></button>`).join('')}</div>
     </section>
     <section class="panel">
       <div class="row"><div><div class="eyebrow">Справочник</div><h2 style="margin:4px 0 8px">Все предметы</h2></div><span class="spacer"></span>
@@ -559,21 +590,57 @@ function showItems() {
         <div class="row">${itemIcon(itemsOpen)}<div><h3 style="margin:0">${esc(open.name)}</h3>
           <div class="muted num" style="font-size:12px">${SLOT[open.slot] || ''} · тир ${open.tier} · ${k(open.cost)} душ${open.active ? ' · активный' : ''}${base[itemsOpen] ? ` · винрейт ${(base[itemsOpen].wr * 100).toFixed(1)}% · покупают в среднем на ${clock(base[itemsOpen].buy)}` : ''}</div></div>
           <span class="spacer"></span><button class="btn ghost" id="iclose">Закрыть</button></div>
-        ${open.desc ? `<p class="desc">${descHtml(open.desc)}</p>` : ''}
+        ${open.ru ? `<p style="margin:8px 0">${esc(open.ru)}</p>` : ''}
+        ${(open.vs || []).length ? `<div class="row" style="gap:6px"><span class="muted" style="font-size:12px">Помогает, если враг:</span>${vsChips(open)}</div>` : ''}
+        ${open.desc ? `<details style="margin-top:6px"><summary class="muted" style="cursor:pointer;font-size:12px">Описание из игры (англ.)</summary><p class="desc">${descHtml(open.desc)}</p></details>` : ''}
         ${open.props?.length ? `<div class="row" style="gap:6px">${open.props.map(pr => `<span class="pill">${esc(pr.label)}: <b class="num">${esc(String(pr.value))}${esc(pr.postfix)}</b></span>`).join('')}</div>` : ''}
         ${strongVs(itemsOpen).length ? `<h3 style="margin-top:12px">Хорош против</h3><div class="row">${strongVs(itemsOpen).map(([h]) => `<span class="pill">${heroIcon(h, 's')}${esc(heroName(h))}</span>`).join('')}</div>` : ''}
       </div>` : ''}
       <div class="catalog">${list.map(it => `<button class="icard ${it.id === itemsOpen ? 'on' : ''}" data-item="${it.id}">${itemIcon(it.id)}
-        <div><b>${esc(it.name)}</b><div class="muted num" style="font-size:12px">тир ${it.tier} · ${k(it.cost)}${it.st ? ` · ${(it.st.wr * 100).toFixed(0)}%` : ''}</div></div></button>`).join('')}</div>
+        <div><b>${esc(it.name)}</b><div class="muted num" style="font-size:12px">тир ${it.tier} · ${k(it.cost)}${it.st ? ` · ${(it.st.wr * 100).toFixed(0)}%` : ''}</div>
+        ${it.ru ? `<div class="muted" style="font-size:11px;line-height:1.3;margin-top:2px">${esc(it.ru.length > 70 ? it.ru.slice(0, 68) + '…' : it.ru)}</div>` : ''}</div></button>`).join('')}</div>
     </section>
   </div>`;
-  app.querySelectorAll('[data-h]').forEach(b => b.onclick = () => { itemsHero = +b.dataset.h; showItems() });
+  app.querySelectorAll('[data-h]').forEach(b => b.onclick = () => { itemsHero = +b.dataset.h; itemsMore = false; showItems() });
   app.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { itemsSlot = b.dataset.slot; showItems() });
+  app.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { itemsCat = b.dataset.cat; showItems() });
+  const more = document.getElementById('imore'); if (more) more.onclick = () => { itemsMore = !itemsMore; showItems() };
   app.querySelectorAll('[data-tier]').forEach(b => b.onclick = () => { itemsTier = +b.dataset.tier; showItems() });
   app.querySelectorAll('[data-item]').forEach(b => b.onclick = () => { itemsOpen = +b.dataset.item; showItems(); window.scrollTo({top: app.querySelector('#iq').getBoundingClientRect().top + scrollY - 80}) });
   const close = document.getElementById('iclose'); if (close) close.onclick = () => { itemsOpen = null; showItems() };
   const q = document.getElementById('iq');
   q.oninput = () => { itemsQuery = q.value; clearTimeout(q._t); q._t = setTimeout(() => { showItems(); const n = document.getElementById('iq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length) }, 250) };
+}
+
+let deathPhase = 'all';
+function drawDeathMap(games) {
+  const cv = document.getElementById('deathMap');
+  if (!cv) return;
+  const g = cv.getContext('2d'), W = cv.width, R = MAPDATA?.radius || 10752;
+  const px = x => (x + R) / (2 * R) * W, py = y => (R - y) / (2 * R) * W;
+  const paint = () => {
+    g.fillStyle = '#0b0f0e'; g.fillRect(0, 0, W, W);
+    const mm = img(MAPDATA?.image);
+    if (mm?.complete && mm.naturalWidth) {
+      const t = document.createElement('canvas'); t.width = t.height = W; const tc = t.getContext('2d');
+      tc.drawImage(mm, 0, 0, W, W); tc.globalCompositeOperation = 'source-in'; tc.fillStyle = '#2f3a35'; tc.fillRect(0, 0, W, W);
+      g.drawImage(t, 0, 0);
+    }
+    const inPhase = s => deathPhase === 'all' || (deathPhase === 'lane' ? s < 600 : deathPhase === 'mid' ? s >= 600 && s < 1500 : s >= 1500);
+    let n = 0;
+    for (const x of games) for (const [dx, dy, ds] of x.p.dx || []) {
+      if (!inPhase(ds)) continue;
+      n++;
+      const grd = g.createRadialGradient(px(dx), py(dy), 0, px(dx), py(dy), 26);
+      grd.addColorStop(0, 'rgba(212,85,63,0.45)'); grd.addColorStop(1, 'rgba(212,85,63,0)');
+      g.fillStyle = grd; g.beginPath(); g.arc(px(dx), py(dy), 26, 0, 7); g.fill();
+      g.fillStyle = x.p.team === 2 ? '#f0a43a' : '#6f8dff'; g.beginPath(); g.arc(px(dx), py(dy), 4, 0, 7); g.fill();
+    }
+    g.fillStyle = '#ece3cf'; g.font = '22px Onest, sans-serif'; g.fillText(`Смертей: ${n}`, 16, 34);
+  };
+  paint();
+  const mm = img(MAPDATA?.image);
+  if (mm && !mm.complete) mm.addEventListener('load', paint);
 }
 
 /* ---------------- how it works ---------------- */
@@ -979,6 +1046,7 @@ async function showMatch(id) {
           <div class="kpi"><b>${p.items.filter(x => !x.sold).length}</b><span>покупок</span></div>
           <div class="kpi"><b>${p.items.filter(x => x.sold).length}</b><span>продаж</span></div></div>
         <h3>Сборка к концу матча</h3><div class="items">${p.build.map(tile).join('') || '<span class="muted">—</span>'}</div>
+        ${buildCompare(p)}
         <h3 style="margin-top:12px">Порядок покупок</h3>
         <div class="moments">${p.items.map(x => `<div class="mo" data-t="${x.t}"><span class="c">${clock(x.t)}</span>
           <div class="row" style="gap:8px">${it(x.id).img ? `<img class="ico ${it(x.id).slot || ''}" src="${it(x.id).img}" alt="">` : ''}
@@ -1037,6 +1105,22 @@ async function showMatch(id) {
     if (tab === 'farm') drawFarm(p);
     if (tab === 'lane' && p.lane_min) drawLane(p.lane_min);
     if (tab === 'ult') drawUlt(p);
+  }
+
+  function buildCompare(p) {
+    const pop = (COUNTERS?.builds?.[p.hero_id] || []).filter(r => ITEMS[r[0]]);
+    if (!pop.length) return '';
+    const mine = Object.fromEntries((p.items || []).filter(x => !x.sold).map(x => [x.id, x.t]));
+    const popular = pop.slice(0, 14);
+    const rare = Object.keys(mine).map(Number).filter(id => !pop.some(r => r[0] === id) && ITEMS[id]);
+    return `<h3 style="margin-top:12px">Против популярной сборки ${esc(p.hero)}</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">Что чаще всего берут на этом герое за 30 дней. В Deadlock героя можно собрать как угодно, так что это ориентир, а не правило.</div>
+      <div class="scroll"><table><thead><tr><th>Предмет</th><th>Берут</th><th>Винрейт</th><th>Обычно к</th><th>У тебя</th></tr></thead><tbody>
+      ${popular.map(([id, pick, wr, buy]) => `<tr><td><span class="row" style="gap:6px;flex-wrap:nowrap">${itemIcon(id)}${esc(ITEMS[id].name)}</span></td>
+        <td class="num">${Math.round(pick * 100)}%</td><td class="num">${(wr * 100).toFixed(1)}%</td><td class="num">${buy ? clock(buy) : '—'}</td>
+        <td class="num">${mine[id] != null ? `<span class="ok">${clock(mine[id])}</span>${buy && mine[id] - buy > 180 ? ' <span class="no" title="на 3+ минуты позже обычного">поздно</span>' : ''}` : '<span class="muted">не брал</span>'}</td></tr>`).join('')}
+      </tbody></table></div>
+      ${rare.length ? `<div class="row" style="gap:6px;margin-top:6px"><span class="muted" style="font-size:12px">Редкий выбор на этом герое:</span>${rare.map(id => `<span class="pill">${esc(ITEMS[id].name)}</span>`).join('')}</div>` : ''}`;
   }
 
   function benchBlock(p) {

@@ -53,7 +53,8 @@ def rebuild_index():
             "players": [{k: p[k] for k in ("account_id", "name", "hero", "hero_id", "team", "won", "ruin", "verdict")}
                         | {"kda": f"{p['stats']['kills']}/{p['stats']['deaths']}/{p['stats']['assists']}",
                            "s": {k: p["stats"].get(k) for k in SUMMARY_STATS},
-                           "mist": _count_titles(p["moments"], False), "good": _count_titles(p["moments"], True)}
+                           "mist": _count_titles(p["moments"], False), "good": _count_titles(p["moments"], True),
+                           "dx": [[k["x"], k["y"], round(k["t"])] for k in r.get("kills", []) if k["victim"] == p["hero_id"]]}
                         for p in r["players"]],
         })
     rows.sort(key=lambda r: r["match_id"], reverse=True)

@@ -20,7 +20,7 @@ META = Path(__file__).parent / "web" / "reports"
 KEEP_ENTITIES = ("shops", "soul_urn_spawns", "teleporters", "bridge_buffs", "golden_statues",
                  "healing_snacks", "unstable_rifts", "bells")
 META_MAX_AGE = 3 * 86400
-GUIDE_VERSION = 3  # bump when counter rules change so the bot rebuilds them
+GUIDE_VERSION = 4  # bump when counter rules change so the bot rebuilds them
 
 
 def grab(url, sub):
@@ -60,6 +60,35 @@ def item_props(it):
     return out
 
 
+RU_FILE = OUT / "items_ru.json"
+# fallback for items added in a patch before they get a translation: guess by effect properties
+AUTO_VS = [
+    ("gun", re.compile(r"^(BulletResist|DeflectionPercent|Evasion|FireRateSlow|StatusEffectDisarmed)")),
+    ("spirit", re.compile(r"^(TechResist|SpiritDamageReduction|TechPowerReduction|StatusEffectEMP)")),
+    ("heal", re.compile(r"^HealAmp\w*Penalty")),
+    ("tank", re.compile(r"(ResistReduction|ArmorReduction|ArmorDamageReduction|DotHealthPercent|CurrentHealthDamage)")),
+    ("mobile", re.compile(r"^(SlowPercent|MovementSpeedSlow|MaxSlowPercent)")),
+    ("channel", re.compile(r"^(StatusEffectStun|FreezeDuration)")),
+    ("cc", re.compile(r"^(StatusResistancePercent|StatusImmune)")),
+    ("burst", re.compile(r"CombatBarrier$")),
+]
+
+
+def effect_props(it):
+    out = []
+    for sec in it.get("tooltip_sections") or []:
+        if sec.get("section_type") == "innate":
+            continue
+        for a in sec.get("section_attributes") or []:
+            out += (a.get("properties") or []) + (a.get("elevated_properties") or []) + (a.get("important_properties") or [])
+    return out
+
+
+def auto_vs(it):
+    props = effect_props(it)
+    return [cat for cat, rx in AUTO_VS if any(rx.search(k) for k in props)]
+
+
 def main():
     m = requests.get(f"{API}/map", timeout=60).json()
     camps = [{"name": c["name"], "kind": c["kind"], "x": c["position"][0], "y": c["position"][1],
@@ -81,14 +110,17 @@ def main():
                            "sm": grab(img.get("icon_image_small_webp") or img.get("icon_image_small"), "heroes")}
     (OUT / "heroes.json").write_text(json.dumps(heroes), encoding="utf-8")
 
+    ru = json.loads(RU_FILE.read_text(encoding="utf-8")) if RU_FILE.exists() else {}
     items = {}
     for it in requests.get(f"{API}/items", timeout=60).json():
         if it.get("type") != "upgrade" or not it.get("shopable"):
             continue
+        tr = ru.get(it["name"])
         items[it["id"]] = {"name": it["name"], "slot": it.get("item_slot_type"), "tier": it.get("item_tier"),
                            "cost": it.get("cost"), "img": grab(it.get("image_webp") or it.get("image"), "items"),
                            "active": bool(it.get("is_active_item")), "desc": plain_desc(it.get("description")),
-                           "props": item_props(it)}
+                           "props": item_props(it), "ru": tr[0] if tr else None,
+                           "vs": tr[1] if tr else auto_vs(it), "vs_auto": not tr}
     (OUT / "items.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
     print(f"map: {len(camps)} camps, heroes: {len(heroes)}, items: {len(items)}")
 
@@ -107,20 +139,28 @@ COUNTER_ITEMS = {
     "fly": ("часто в воздухе: Knockdown станит дольше, Slowing Hex и Phantom Strike тянут вниз",
             ["Knockdown", "Slowing Hex", "Phantom Strike"]),
     "heal": ("сильно лечится, нужен антихил", ["Healbane", "Toxic Bullets", "Inhibitor", "Crippling Headshot"]),
+    "summons": ("воюет призывами и турелями", ["Monster Rounds", "Ricochet"]),
+    "melee": ("бьёт в ближнем бою: парируй и держи дистанцию", ["Rebuttal", "Counterspell"]),
+    "stealth": ("уходит в невидимость: подсвечивай и бей по области", ["Stalker"]),
+    "burst": ("убивает быстрым бурстом", ["Ethereal Shift", "Divine Barrier", "Extra Health"]),
     "tank": ("много здоровья и сопротивлений: урон от процента HP и снижение брони",
              ["Toxic Bullets", "Decay", "Crippling Headshot", "Spirit Shredder", "Mystic Vulnerability", "Weakening Headshot",
               "Escalating Exposure"]),
 }
-TRAIT_WEIGHT = {"channel": 3, "heal": 3, "gun": 2, "spirit": 2, "cc": 2, "fly": 2, "mobile": 1.5, "tank": 1.5}
+TRAIT_WEIGHT = {"channel": 3, "heal": 3, "gun": 2, "spirit": 2, "cc": 2, "fly": 2, "summons": 2, "mobile": 1.5, "tank": 1.5,
+                "melee": 1.5, "stealth": 1.5, "burst": 1}
 TRAIT_TAGS = {
     "heal": {"Lifesteal"}, "tank": {"Tank"}, "fly": {"High-Flying", "High-flying", "Soaring"},
     "mobile": {"Mobility", "Acrobatics", "Nimble", "Slippery", "Evasive", "Traveller"},
+    "stealth": {"Stealthy"}, "summons": {"Necromancer", "Inventor"}, "burst": {"Burst Damage", "Lethal", "One Shot Kill"},
     "cc": {"Disruptor", "Disruption", "Disruptive", "Hexing", "Apprehender"},
 }
 # mechanics the ability data does not expose (Haze and Dynamo ults are interrupted by stuns per guides)
 TRAIT_FIX = {
-    "Haze": {"channel"}, "Lash": {"cc"}, "Dynamo": {"cc", "channel"}, "Bebop": {"cc"}, "Mo & Krill": {"cc"},
+    "Lash": {"cc"}, "Dynamo": {"cc", "channel"}, "Bebop": {"cc"}, "Mo & Krill": {"cc"},
     "Wraith": {"cc"}, "Paradox": {"cc"}, "Infernus": {"spirit"}, "Kelvin": {"heal"},
+    "McGinnis": {"summons"}, "Graves": {"summons"}, "Rem": {"summons"}, "Haze": {"channel", "stealth"},
+    "Billy": {"melee"}, "Calico": {"melee"}, "Viscous": {"melee"}, "Abrams": {"melee"}, "Pocket": {"burst"}, "Yamato": {"burst"},
 }
 NOT_CHANNEL = {"Victor"}  # his "channel" is a self-revive, not something to interrupt
 
@@ -245,10 +285,12 @@ def hero_traits(hero, abilities, stats, hp_cut, shots_cut):
     tr |= TRAIT_FIX.get(hero["name"], set())
     if not tr & {"gun", "spirit"}:
         tr.add("gun" if hero.get("hero_type") in ("brawler", "assassin") else "spirit")
+    if hero.get("hero_type") == "assassin":
+        tr.add("burst")
     return [t for t in TRAIT_WEIGHT if t in tr]
 
 
-def build_guide(heroes_raw, items_raw, hero_stats, stat_rows):
+def build_guide(heroes_raw, items_raw, hero_stats, stat_rows, item_vs):
     by_class = {x["class_name"]: x for x in items_raw}
     by_name = {x["name"]: x["id"] for x in items_raw if x.get("type") == "upgrade" and x.get("shopable")}
     hp = {h: v["total_max_health"] / v["matches"] for h, v in hero_stats.items() if v["matches"]}
@@ -282,9 +324,16 @@ def build_guide(heroes_raw, items_raw, hero_stats, stat_rows):
                 else:
                     why.setdefault(iid, []).append(reason)
                     src[iid] = "mech"
+        # items tagged for a trait in items_ru.json (or auto-tagged after a patch) join with a lower weight
+        for iid, meta_it in item_vs.items():
+            for t in traits:
+                if t in meta_it["vs"] and iid not in why:
+                    score.setdefault(iid, []).append(TRAIT_WEIGHT[t] * 0.6)
+                    why.setdefault(iid, []).append(COUNTER_ITEMS[t][0])
+                    src[iid] = "mech"
         # the strongest reason counts fully, extra reasons add a little
         score = {i: max(w) + 0.35 * (sum(w) - max(w)) + max(0, min(3, lift.get(i, 0))) / 3 for i, w in score.items()}
-        best = sorted(score, key=lambda i: -score[i])[:10]
+        best = sorted(score, key=lambda i: -score[i])[:14]
         guide[h["id"]] = {"traits": traits,
                           "items": [{"id": i, "why": why[i], "lift": lift.get(i), "src": src[i]} for i in best]}
     return guide
@@ -346,7 +395,18 @@ def meta(force=False):
     heroes_raw = requests.get(f"{API}/heroes", timeout=60).json()
     items_raw = requests.get(f"{API}/items", timeout=60).json()
     raw_stats = {h["hero_id"]: h for h in requests.get(f"{STATS}/hero-stats", params=since, timeout=120).json()}
-    counters["guide"] = build_guide(heroes_raw, items_raw, raw_stats, all_rows)
+    items_local = json.loads((OUT / "items.json").read_text(encoding="utf-8"))
+    item_vs = {int(i): v for i, v in items_local.items() if v.get("vs")}
+    counters["guide"] = build_guide(heroes_raw, items_raw, raw_stats, all_rows, item_vs)
+    # what players usually build on each hero (pick rate in that hero's matches)
+    builds = {}
+    for hid in hero_ids:
+        n = bench["heroes"][hid]["matches"] or 1
+        rows = [[i, round(x["matches"] / n, 3), round(x["wins"] / x["matches"], 4), round(x.get("avg_buy_time_s") or 0)]
+                for i, x in item_stats(hero_ids=hid).items() if x["matches"] >= 300]
+        builds[hid] = sorted(rows, key=lambda r: -r[1])[:30]
+        time.sleep(0.3)
+    counters["builds"] = builds
     (META / "counters.json").write_text(json.dumps(counters, ensure_ascii=False), encoding="utf-8")
     print(f"meta: {len(hero_ids)} heroes, {len(counters['base'])} items")
 
