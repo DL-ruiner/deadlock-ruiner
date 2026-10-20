@@ -148,6 +148,20 @@ canvas.chart{width:100%;height:200px;display:block;background:var(--slab2);borde
 .trend{display:flex;align-items:flex-end;gap:4px;height:90px;padding:6px 0;border-bottom:1px solid var(--rule)}
 .trend a{flex:1;max-width:36px;border-radius:4px 4px 0 0;min-height:4px;display:block}
 .empty{padding:40px;text-align:center}
+.heroes-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
+.heroes-pick button{background:var(--slab2);border:1px solid var(--rule);border-radius:10px;padding:6px 4px;cursor:pointer;color:var(--dust);font-size:11px;display:grid;justify-items:center;gap:3px}
+.heroes-pick button.on{border-color:var(--brass);color:var(--parch);background:#2a2a1f}
+.heroes-pick img{width:40px;height:40px;border-radius:8px}
+.counter{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-top:1px solid var(--rule)}
+.counter img{width:34px;height:34px;border-radius:7px;padding:3px}
+.lift{font:700 14px var(--num);color:var(--jade)}
+.catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.icard{display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;align-items:center;background:var(--slab2);border:1px solid var(--rule);border-radius:10px;padding:7px 9px;cursor:pointer;text-align:left;color:var(--parch)}
+.icard:hover,.icard.on{border-color:var(--brass)}
+.icard img{width:40px;height:40px;border-radius:8px;padding:3px}
+.desc{white-space:pre-line}
+.desc b{color:var(--brass2)}
+.got{color:var(--jade);font-size:12px} .miss{color:var(--blood);font-size:12px}
 code{background:var(--slab2);padding:1px 6px;border-radius:4px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -155,7 +169,7 @@ code{background:var(--slab2);padding:1px 6px;border-radius:4px}
 <body>
 <header><div class="bar-in">
   <a class="brand" href="#"><img src="logo.svg" alt=""><div><b>RUIN<span>E</span>R</b><small>Deadlock · разбор матчей</small></div></a>
-  <nav><a href="#" id="navHome">Матчи</a><a href="#crew" id="navCrew">Компания</a><a href="#how" id="navHow">Как считаем</a></nav>
+  <nav><a href="#" id="navHome">Матчи</a><a href="#crew" id="navCrew">Компания</a><a href="#items" id="navItems">Предметы</a><a href="#how" id="navHow">Как считаем</a></nav>
 </div></header>
 <main id="app"></main>
 
@@ -165,7 +179,7 @@ const STEAM64 = 76561197960265728;
 const app = document.getElementById('app');
 const store = {get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d } catch { return d } },
                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }};
-let index = [], stopReplay = null, MAPDATA = null, HEROES = {}, ITEMS = {}, BENCH = null, CONFIG = null, FRIENDS = [], HAS_API = null;
+let index = [], stopReplay = null, MAPDATA = null, HEROES = {}, ITEMS = {}, BENCH = null, COUNTERS = null, CONFIG = null, FRIENDS = [], HAS_API = null;
 const IMG = {};
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -189,6 +203,10 @@ async function loadStatic() {
   if (!MAPDATA) [MAPDATA, HEROES, ITEMS, BENCH, CONFIG] = await Promise.all([
     getJSON('assets/map.json', null), getJSON('assets/heroes.json', {}), getJSON('assets/items.json', {}),
     getJSON('assets/bench.json', null), getJSON('config.json', {})]);
+  if (!COUNTERS) {
+    COUNTERS = await getJSON('reports/counters.json', {vs: {}, base: {}});
+    BENCH = await getJSON('reports/bench.json', BENCH);
+  }
   if (HAS_API === null) HAS_API = location.hostname.endsWith('github.io') ? false
     : await fetch('api/ping', {cache: 'no-store'}).then(r => r.ok).catch(() => false);
   const file = await getJSON('friends.json', []);
@@ -201,15 +219,17 @@ async function route() {
   await loadStatic();
   index = await getJSON('reports/index.json', []);
   const h = location.hash;
-  const page = /^#m\d+$/.test(h) ? 'match' : /^#p\d+$/.test(h) ? 'player' : h === '#crew' || h === '#friends' ? 'crew' : h === '#how' ? 'how' : 'home';
+  const page = /^#m\d+$/.test(h) ? 'match' : /^#p\d+$/.test(h) ? 'player' : h === '#crew' || h === '#friends' ? 'crew' : h === '#how' ? 'how' : h.startsWith('#items') ? 'items' : 'home';
   document.getElementById('navHome').classList.toggle('on', page === 'home' || page === 'match');
   document.getElementById('navCrew').classList.toggle('on', page === 'crew' || page === 'player');
   document.getElementById('navHow').classList.toggle('on', page === 'how');
+  document.getElementById('navItems').classList.toggle('on', page === 'items');
   window.scrollTo(0, 0);
   if (page === 'match') return showMatch(h.slice(2));
   if (page === 'player') return showPlayer(Number(h.slice(2)));
   if (page === 'crew') return showCrew();
   if (page === 'how') return showHow();
+  if (page === 'items') return showItems();
   showHome();
 }
 window.addEventListener('hashchange', route);
@@ -257,6 +277,11 @@ function duoTable(list) {
     <p class="muted" style="font-size:12px">«Убийств вместе» — убийство, где участвовали оба (килл или ассист). «Умерли вдвоём» — смерти с разницей до 6 секунд рядом друг с другом.</p>`
     : '<p class="muted">Пока нет матчей, где двое из компании играли в одной команде.</p>';
 }
+
+const itemIcon = id => ITEMS[id]?.img ? `<img class="ico ${ITEMS[id].slot || ''}" src="${ITEMS[id].img}" alt="">` : '';
+const descHtml = t => esc(t || '').replace(/\[\[(.*?)\]\]/g, '<b>$1</b>');
+const SLOT = {weapon: 'Оружие', vitality: 'Живучесть', spirit: 'Дух'};
+function countersVs(hero, n = 6) { return (COUNTERS?.vs?.[hero] || []).filter(r => ITEMS[r[0]] && r[2] > 0.3).slice(0, n) }
 
 function requestLink(text) {
   return CONFIG?.repo ? `https://github.com/${CONFIG.repo}/issues/new?template=match.yml&title=${encodeURIComponent(text)}` : null;
@@ -485,6 +510,58 @@ function showPlayer(acc) {
   </div>`;
   const feed = document.getElementById('feed');
   if (feed) renderFeed(feed, index.filter(m => m.players.some(p => p.account_id === acc)));
+}
+
+/* ---------------- items ---------------- */
+let itemsHero = null, itemsSlot = 'all', itemsTier = 0, itemsQuery = '', itemsOpen = null;
+function showItems() {
+  const heroIds = Object.keys(COUNTERS?.vs || {}).map(Number).filter(h => HEROES[h]).sort((a, b) => heroName(a).localeCompare(heroName(b)));
+  if (itemsHero == null) itemsHero = heroIds[0];
+  const base = COUNTERS?.base || {};
+  const list = Object.entries(ITEMS).map(([id, it]) => ({id: +id, ...it, st: base[id]}))
+    .filter(it => (itemsSlot === 'all' || it.slot === itemsSlot) && (!itemsTier || it.tier === itemsTier)
+      && (!itemsQuery || it.name.toLowerCase().includes(itemsQuery.toLowerCase())))
+    .sort((a, b) => a.tier - b.tier || a.cost - b.cost || a.name.localeCompare(b.name));
+  const strongVs = id => Object.entries(COUNTERS?.vs || {}).map(([h, rows]) => [+h, rows.find(r => r[0] === id)])
+    .filter(([h, r]) => r && r[2] > 0.3 && HEROES[h]).sort((a, b) => b[1][2] - a[1][2]).slice(0, 8);
+  const open = itemsOpen && ITEMS[itemsOpen];
+  app.innerHTML = `<div class="stack">
+    <section class="panel">
+      <div class="eyebrow">Контрпики</div><h2 style="margin:4px 0 6px">Что брать против героя</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">По всем матчам за 30 дней: насколько чаще выигрывают игроки с этим предметом, когда в команде врага есть выбранный герой, по сравнению с обычным винрейтом этого предмета.</p>
+      <div class="heroes-pick">${heroIds.map(h => `<button data-h="${h}" class="${h === itemsHero ? 'on' : ''}">${HEROES[h].sm ? `<img src="${HEROES[h].sm}" alt="">` : ''}${esc(heroName(h))}</button>`).join('')}</div>
+      <h3 style="margin-top:14px">Против ${esc(heroName(itemsHero))}</h3>
+      ${countersVs(itemsHero, 10).map(r => `<div class="counter" data-item="${r[0]}" style="cursor:pointer">${itemIcon(r[0])}
+        <div><b>${esc(ITEMS[r[0]].name)}</b> <span class="muted num" style="font-size:12px">${SLOT[ITEMS[r[0]].slot] || ''} · тир ${ITEMS[r[0]].tier} · ${k(ITEMS[r[0]].cost)}</span>
+        <div class="muted" style="font-size:12px">винрейт ${(r[1] * 100).toFixed(1)}% · ${k(r[3])} матчей</div></div>
+        <span class="lift">+${r[2].toFixed(1)} п.п.</span></div>`).join('') || '<p class="muted">Пока нет данных.</p>'}
+    </section>
+    <section class="panel">
+      <div class="row"><div><div class="eyebrow">Справочник</div><h2 style="margin:4px 0 8px">Все предметы</h2></div><span class="spacer"></span>
+        <input id="iq" placeholder="Поиск по названию" value="${esc(itemsQuery)}" style="min-width:200px"></div>
+      <div class="row" style="margin-bottom:10px">
+        <div class="chips">${[['all', 'Все'], ['weapon', 'Оружие'], ['vitality', 'Живучесть'], ['spirit', 'Дух']].map(([v, l]) => `<button class="chip ${itemsSlot === v ? 'on' : ''}" data-slot="${v}">${l}</button>`).join('')}</div>
+        <div class="chips">${[0, 1, 2, 3, 4].map(t => `<button class="chip ${itemsTier === t ? 'on' : ''}" data-tier="${t}">${t ? 'Тир ' + t : 'Все тиры'}</button>`).join('')}</div>
+      </div>
+      ${open ? `<div class="panel" style="background:var(--slab2);margin-bottom:12px">
+        <div class="row">${itemIcon(itemsOpen)}<div><h3 style="margin:0">${esc(open.name)}</h3>
+          <div class="muted num" style="font-size:12px">${SLOT[open.slot] || ''} · тир ${open.tier} · ${k(open.cost)} душ${open.active ? ' · активный' : ''}${base[itemsOpen] ? ` · винрейт ${(base[itemsOpen].wr * 100).toFixed(1)}% · покупают в среднем на ${clock(base[itemsOpen].buy)}` : ''}</div></div>
+          <span class="spacer"></span><button class="btn ghost" id="iclose">Закрыть</button></div>
+        ${open.desc ? `<p class="desc">${descHtml(open.desc)}</p>` : ''}
+        ${open.props?.length ? `<div class="row" style="gap:6px">${open.props.map(pr => `<span class="pill">${esc(pr.label)}: <b class="num">${esc(String(pr.value))}${esc(pr.postfix)}</b></span>`).join('')}</div>` : ''}
+        ${strongVs(itemsOpen).length ? `<h3 style="margin-top:12px">Особенно хорош против</h3><div class="row">${strongVs(itemsOpen).map(([h, r]) => `<span class="pill">${heroIcon(h, 's')}${esc(heroName(h))} <span class="ok num">+${r[2].toFixed(1)}</span></span>`).join('')}</div>` : ''}
+      </div>` : ''}
+      <div class="catalog">${list.map(it => `<button class="icard ${it.id === itemsOpen ? 'on' : ''}" data-item="${it.id}">${itemIcon(it.id)}
+        <div><b>${esc(it.name)}</b><div class="muted num" style="font-size:12px">тир ${it.tier} · ${k(it.cost)}${it.st ? ` · ${(it.st.wr * 100).toFixed(0)}%` : ''}</div></div></button>`).join('')}</div>
+    </section>
+  </div>`;
+  app.querySelectorAll('[data-h]').forEach(b => b.onclick = () => { itemsHero = +b.dataset.h; showItems() });
+  app.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => { itemsSlot = b.dataset.slot; showItems() });
+  app.querySelectorAll('[data-tier]').forEach(b => b.onclick = () => { itemsTier = +b.dataset.tier; showItems() });
+  app.querySelectorAll('[data-item]').forEach(b => b.onclick = () => { itemsOpen = +b.dataset.item; showItems(); window.scrollTo({top: app.querySelector('#iq').getBoundingClientRect().top + scrollY - 80}) });
+  const close = document.getElementById('iclose'); if (close) close.onclick = () => { itemsOpen = null; showItems() };
+  const q = document.getElementById('iq');
+  q.oninput = () => { itemsQuery = q.value; clearTimeout(q._t); q._t = setTimeout(() => { showItems(); const n = document.getElementById('iq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length) }, 250) };
 }
 
 /* ---------------- how it works ---------------- */
@@ -785,7 +862,7 @@ async function showMatch(id) {
       <div class="row">${heroIcon(p.hero_id, 'l')}<div><div class="eyebrow">${esc(p.hero)} · ${TEAM[p.team].name}</div>
         <div style="font:400 24px/1.1 var(--display)">${esc(label(p))}</div></div><span class="spacer"></span>
         <span class="pill ${verdictCls(p.verdict)}">${p.verdict} · руин ${p.ruin}</span></div>
-      <div class="tabs">${[['overview', 'Обзор'], ['moments', `Моменты ${p.moments.length}`], ['lane', 'Линия'], ['combat', 'Бой'], ['items', 'Предметы'], ['farm', 'Фарм'], ['fights', `Драки ${p.fights.length}`], ['ult', 'Ульта']]
+      <div class="tabs">${[['overview', 'Обзор'], ['moments', `Моменты ${p.moments.length}`], ['lane', 'Линия'], ['combat', 'Бой'], ['items', 'Предметы'], ['counters', 'Контрпики'], ['farm', 'Фарм'], ['fights', `Драки ${p.fights.length}`], ['ult', 'Ульта']]
         .map(([k2, l]) => `<button data-tab="${k2}" class="${tab === k2 ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     let body = '';
     if (tab === 'overview') {
@@ -830,6 +907,27 @@ async function showMatch(id) {
             <td class="num ${d >= 0 ? 'ok' : 'no'}">${d > 0 ? '+' : ''}${d}</td><td class="num">${L.me.lh[i]}</td><td class="num muted">${L.foe.lh[i]}</td><td class="num">${L.me.dn[i]}</td></tr>` }).join('')}
         </tbody></table></div>`;
       }
+    } else if (tab === 'counters') {
+      const enemies = r.players.filter(o => o.team !== p.team);
+      const mates = r.players.filter(o => o.team === p.team);
+      const boughtBy = (pl, id) => (pl.items || []).find(x => x.id === id && !x.sold);
+      const score = {};
+      enemies.forEach(e => countersVs(e.hero_id, 10).forEach(rw => { score[rw[0]] = (score[rw[0]] || 0) + rw[2] }));
+      const top = Object.entries(score).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([id, v]) => [+id, v]);
+      const status = id => {
+        const me = boughtBy(p, id);
+        if (me) return `<span class="got">✓ у тебя (${clock(me.t)})</span>`;
+        const mate = mates.find(o => o !== p && boughtBy(o, id));
+        return mate ? `<span class="got">✓ у ${esc(label(mate))}</span>` : '<span class="miss">никто не взял</span>';
+      };
+      body = !p.items ? stale : `
+        <p class="muted" style="margin:0 0 8px;font-size:13px">Что по статистике лучше всего работало против этого состава врагов и было ли это в вашей команде.</p>
+        <h3>Против всего состава</h3>
+        ${top.map(([id, v]) => `<div class="counter">${itemIcon(id)}<div><b>${esc(ITEMS[id].name)}</b> <span class="muted num" style="font-size:12px">${k(ITEMS[id].cost)}</span><div>${status(id)}</div></div><span class="lift">+${v.toFixed(1)}</span></div>`).join('') || '<p class="muted">Нет данных</p>'}
+        <h3 style="margin-top:14px">По каждому врагу</h3>
+        ${enemies.map(e => `<div style="margin:8px 0"><div class="row" style="gap:6px">${heroIcon(e.hero_id, 's')}<b>${esc(e.hero)}</b><span class="muted" style="font-size:12px">${esc(e.name)}</span></div>
+          <div class="row" style="gap:6px;margin-top:4px">${countersVs(e.hero_id, 4).map(rw => `<span class="pill" title="+${rw[2].toFixed(1)} п.п.">${itemIcon(rw[0]).replace('class="ico', 'style="width:20px;height:20px;padding:1px" class="ico')}${esc(ITEMS[rw[0]].name)} ${boughtBy(p, rw[0]) ? '<span class="ok">✓</span>' : mates.some(o => boughtBy(o, rw[0])) ? '<span class="meh">✓</span>' : ''}</span>`).join('') || '<span class="muted">—</span>'}</div></div>`).join('')}
+        <p class="muted" style="font-size:12px">Зелёная галка — купил ты, жёлтая — кто-то из команды. Числа — на сколько процентных пунктов чаще выигрывают с предметом против этих героев. <a href="#items">Справочник предметов →</a></p>`;
     } else if (tab === 'combat') {
       const c = p.combat;
       if (!c) body = stale; else {

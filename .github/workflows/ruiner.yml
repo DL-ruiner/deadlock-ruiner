@@ -64,11 +64,20 @@ jobs:
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.request == '')
         run: python ruiner.py friends -n 5
 
+      - name: Refresh hero averages and item counters
+        run: python assets.py --meta || echo "meta refresh skipped"
+
       - name: Save reports
         if: always()
         env:
           TOKEN: ${{ github.token }}
         run: python datastore.py save
+
+      - name: Post to Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python notify.py || true
 
   deploy:
     needs: analyze
@@ -94,7 +103,7 @@ jobs:
         run: |
           python datastore.py restore
           python ruiner.py reindex
-          python assets.py --bench || echo "bench refresh skipped"
+          test -f web/reports/counters.json || python assets.py --meta || echo "meta skipped"
 
       - uses: actions/upload-pages-artifact@v3
         with:

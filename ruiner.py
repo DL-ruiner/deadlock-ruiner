@@ -65,6 +65,8 @@ def run_file(path, start_time=None):
     if start_time:
         rep["start_time"] = start_time
     out = save_report(rep, REPORTS)
+    from notify import mark_new
+    mark_new(rep["match_id"])
     rebuild_index()
     ruiner = next((p for p in rep["players"] if p["hero_id"] == rep["ruiner"]), None)
     print(f"match {rep['match_id']} -> {out.name}" + (f"  ruiner: {ruiner['name']} ({ruiner['hero']})" if ruiner else ""))
