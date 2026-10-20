@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deadlock Ruiner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+:root{
+  --bg:#0e0f12; --panel:#16181d; --panel2:#1d2027; --line:#2a2e37; --text:#e7e4dc; --mute:#8b8f99;
+  --amber:#f0a43a; --sapphire:#6f8dff; --good:#4cc38a; --bad:#ef5f5f; --warn:#e6c14a;
+  --display:'Barlow Condensed',system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+a{color:inherit}
+header{display:flex;align-items:center;gap:20px;padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+header h1{font:700 22px/1 var(--display);margin:0;letter-spacing:.06em;text-transform:uppercase}
+header h1 span{color:var(--bad)}
+nav a{color:var(--mute);text-decoration:none;margin-right:14px;font-weight:600}
+nav a.on{color:var(--text)}
+main{padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));max-width:1600px;margin:0 auto}
+.muted{color:var(--mute)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.grid{display:grid;gap:12px;min-width:0}
+.matches{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+.mcard{cursor:pointer;transition:border-color .15s}
+.mcard:hover{border-color:#4a505d}
+.mcard .top{display:flex;justify-content:space-between;margin-bottom:6px}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;background:var(--panel2)}
+.pill.good{color:var(--good)} .pill.bad{color:var(--bad)} .pill.warn{color:var(--warn)}
+.t2{color:var(--amber)} .t3{color:var(--sapphire)}
+.layout{display:grid;grid-template-columns:minmax(320px,680px) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:1100px){.layout{grid-template-columns:1fr}}
+#map{width:100%;max-width:100%;aspect-ratio:1;background:#0d0f14;border-radius:10px;border:1px solid var(--line);display:block}
+.controls{display:flex;align-items:center;gap:6px;margin:8px 0;flex-wrap:wrap}
+.controls button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:600}
+.controls button.on{border-color:var(--text)}
+.layers{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin:4px 0 8px}
+.layers label{cursor:pointer;user-select:none}
+#clock{font-variant-numeric:tabular-nums;min-width:90px}
+#timeline{width:100%;height:70px;display:block;background:var(--panel);border-radius:8px;border:1px solid var(--line);cursor:pointer}
+table{width:100%;border-collapse:collapse}
+th,td{padding:5px 6px;text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums}
+th{color:var(--mute);font-weight:600;font-size:12px}
+tbody tr{border-top:1px solid var(--line)}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--panel2)}
+tbody tr.sel{background:#262a33}
+.hi{width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:6px;background:var(--panel2);object-fit:cover}
+.hi.s{width:20px;height:20px;border-radius:50%;margin-right:3px}
+.bar{height:6px;border-radius:3px;background:var(--panel2);width:80px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px}
+.bar i{display:block;height:100%}
+.teamhead{font:700 17px/1.3 var(--display);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 2px}
+.scroll{overflow-x:auto}
+.moments{max-height:520px;overflow:auto}
+.mo{display:grid;grid-template-columns:48px 1fr;gap:8px;padding:6px 4px;border-top:1px solid var(--line);cursor:pointer}
+.mo:hover{background:var(--panel2)}
+.mo .c{font-variant-numeric:tabular-nums;color:var(--mute)}
+.mo b.g{color:var(--good)} .mo b.b{color:var(--bad)}
+.chips span{display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:6px;font-size:12px}
+.chips .b{background:#3a1f22;color:#ffb3b3} .chips .g{background:#173326;color:#a6f0c8}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:10px 0 8px;flex-wrap:wrap}
+.tabs button{background:none;border:none;color:var(--mute);cursor:pointer;font-weight:600;padding:6px 10px;border-bottom:2px solid transparent}
+.tabs button.on{color:var(--text);border-color:var(--text)}
+.filters{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px}
+.filters button{background:var(--panel2);border:1px solid transparent;color:var(--mute);cursor:pointer;font-weight:600;padding:2px 8px;border-radius:6px;font-size:12px}
+.filters button.on{color:var(--text);border-color:#555c6a}
+.banner{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.big{font:700 24px/1.1 var(--display);letter-spacing:.02em}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin:8px 0}
+.kpi{background:var(--panel2);border-radius:8px;padding:8px 10px}
+.kpi b{display:block;font:700 21px/1.2 var(--display);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12px;color:var(--mute)}
+.tips li{margin:4px 0}
+.srcrow{display:grid;grid-template-columns:150px 1fr 60px;gap:8px;align-items:center;margin:3px 0;font-size:13px}
+.srcrow .track{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+.srcrow .track i{display:block;height:100%;background:var(--warn)}
+canvas.chart{width:100%;height:200px;display:block;background:var(--panel2);border-radius:8px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin:4px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.ok{color:var(--good)} .no{color:var(--bad)} .meh{color:var(--warn)}
+input{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:5px 8px}
+.empty{padding:40px;text-align:center}
+code{background:var(--panel2);padding:1px 6px;border-radius:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Deadlock <span>Ruiner</span></h1>
+  <nav><a href="#" id="navMatches">Матчи</a><a href="#friends" id="navFriends">Друзья</a></nav>
+</header>
+<main id="app"></main>
+
+<script>
+const TEAM = {2: {name: 'Hidden King', cls: 't2', color: '#f0a43a'}, 3: {name: 'Archmother', cls: 't3', color: '#6f8dff'}};
+const STEAM64 = 76561197960265728;
+const app = document.getElementById('app');
+const store = {get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d } catch { return d } },
+               set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }};
+let index = [], stopReplay = null, MAPDATA = null, HEROES = {};
+const IMG = {};
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const ruinColor = r => r > 62 ? 'var(--bad)' : r > 35 ? 'var(--warn)' : 'var(--good)';
+const verdictCls = v => v === 'Тащил' ? 'good' : v === 'Норм' ? 'warn' : 'bad';
+const k = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+const heroIcon = (id, cls = '') => HEROES[id]?.sm ? `<img class="hi ${cls}" src="${HEROES[id].sm}" alt="">` : '';
+function img(src) {
+  if (!src) return null;
+  if (!IMG[src]) { IMG[src] = new Image(); IMG[src].src = src }
+  return IMG[src];
+}
+
+async function getJSON(url, fallback) { try { return await (await fetch(url, {cache: 'no-store'})).json() } catch { return fallback } }
+async function loadStatic() {
+  if (!MAPDATA) MAPDATA = await getJSON('assets/map.json', null);
+  if (!Object.keys(HEROES).length) HEROES = await getJSON('assets/heroes.json', {});
+}
+async function loadFriends() {
+  const file = await getJSON('friends.json', []);
+  const all = [...file, ...store.get('friends', []).map(f => ({...f, local: true}))];
+  return all.filter((f, i) => all.findIndex(g => g.account_id === f.account_id) === i);
+}
+
+async function route() {
+  if (stopReplay) { stopReplay(); stopReplay = null }
+  await loadStatic();
+  index = await getJSON('reports/index.json', []);
+  const h = location.hash;
+  document.getElementById('navMatches').classList.toggle('on', !h.startsWith('#friends'));
+  document.getElementById('navFriends').classList.toggle('on', h.startsWith('#friends'));
+  if (/^#m\d+$/.test(h)) return showMatch(h.slice(2));
+  if (h.startsWith('#friends')) return showFriends();
+  showList();
+}
+window.addEventListener('hashchange', route);
+
+/* ---------------- match list ---------------- */
+let HAS_API = null, pollTimer = null, intakeTab = 'match';
+const JOB_LABEL = {queued: 'в очереди', downloading: 'качаю демку', analyzing: 'анализирую', done: 'готово', error: 'ошибка'};
+
+let CONFIG = null;
+async function showList() {
+  if (HAS_API === null) HAS_API = await fetch('api/ping', {cache: 'no-store'}).then(r => r.ok).catch(() => false);
+  if (!HAS_API && CONFIG === null) CONFIG = await getJSON('config.json', {});
+  app.innerHTML = `${HAS_API ? intakeHtml() : CONFIG?.repo ? issueIntakeHtml() : ''}<div id="mgrid"></div>`;
+  if (HAS_API) bindIntake(); else if (CONFIG?.repo) bindIssueIntake();
+  renderGrid();
+}
+
+// static hosting: requests go through a GitHub issue that the workflow picks up
+function issueIntakeHtml() {
+  return `<div class="card" style="margin-bottom:12px">
+    <div class="tabs" style="margin-top:0">
+      <button data-it="match" class="${intakeTab === 'match' ? 'on' : ''}">Разобрать матч</button>
+      <button data-it="player" class="${intakeTab === 'player' ? 'on' : ''}">Матчи игрока</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="issueInput" style="flex:1;min-width:200px" autocomplete="off"
+        placeholder="${intakeTab === 'match' ? 'ID матча или ссылка на него' : 'Ник в Steam или friend code'}">
+      <a id="issueLink" class="pill" target="_blank" rel="noopener" style="text-decoration:none;padding:6px 14px">Отправить через GitHub</a>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Откроется GitHub (нужен аккаунт): нажми Create — бот разберёт за 5–10 минут и ответит в issue.
+      Новые матчи нашей компании разбираются сами каждые 3 часа.</div>
+  </div>`;
+}
+
+function bindIssueIntake() {
+  app.querySelectorAll('[data-it]').forEach(b => b.onclick = () => { intakeTab = b.dataset.it; showList() });
+  const input = document.getElementById('issueInput'), link = document.getElementById('issueLink');
+  const update = () => {
+    const v = input.value.trim();
+    link.href = `https://github.com/${CONFIG.repo}/issues/new?template=match.yml&title=` +
+      encodeURIComponent((intakeTab === 'match' ? 'match ' : 'player ') + v);
+  };
+  input.oninput = update; update();
+}
+
+function intakeHtml() {
+  return `<div class="card" style="margin-bottom:12px">
+    <div class="tabs" style="margin-top:0">
+      <button data-it="match" class="${intakeTab === 'match' ? 'on' : ''}">Разобрать матч</button>
+      <button data-it="player" class="${intakeTab === 'player' ? 'on' : ''}">Найти игрока</button>
+    </div>
+    <form id="intakeForm" style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="intakeInput" style="flex:1;min-width:200px" autocomplete="off"
+        placeholder="${intakeTab === 'match' ? 'ID матча или ссылка на него' : 'Ник в Steam, friend code или ссылка на профиль'}">
+      <button class="pill" style="border:none;cursor:pointer;padding:6px 14px">${intakeTab === 'match' ? 'Разобрать' : 'Найти'}</button>
+    </form>
+    <div class="muted" style="font-size:12px;margin-top:6px">${intakeTab === 'match'
+      ? 'Реплеи хранятся на серверах Valve около 10 дней. Разбор одного матча занимает 1–3 минуты.'
+      : 'Покажу найденные профили, потом можно разобрать последние матчи игрока.'}</div>
+    <div id="intakeOut" style="margin-top:8px"></div>
+    <div id="jobs" style="margin-top:8px"></div>
+  </div>`;
+}
+
+function bindIntake() {
+  app.querySelectorAll('[data-it]').forEach(b => b.onclick = () => { intakeTab = b.dataset.it; showList() });
+  const out = document.getElementById('intakeOut');
+  document.getElementById('intakeForm').onsubmit = async e => {
+    e.preventDefault();
+    const v = document.getElementById('intakeInput').value.trim();
+    if (!v) return;
+    if (intakeTab === 'match') {
+      const res = await postJSON('api/match', {match: v});
+      out.innerHTML = res.error ? `<span class="no">${esc(res.error)}</span>` : `<span class="ok">Матч ${res.queued[0]} в очереди</span>`;
+    } else {
+      out.innerHTML = '<span class="muted">Ищу…</span>';
+      const list = await getJSON('api/search?q=' + encodeURIComponent(v), []);
+      if (list.error || !list.length) { out.innerHTML = '<span class="no">Никого не нашёл. Попробуй точный ник или friend code.</span>'; return }
+      out.innerHTML = list.map(p => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid var(--line)">
+        ${p.avatar ? `<img class="hi" src="${esc(p.avatar)}" alt="">` : ''}
+        <b>${esc(p.name || 'account ' + p.account_id)}</b><span class="muted">${p.account_id}${p.matches_30d != null ? ' · ' + p.matches_30d + ' матчей за 30 дней' : ''}</span>
+        <span style="flex:1"></span>
+        <button class="pill" data-acc="${p.account_id}" data-n="5" style="border:none;cursor:pointer">Разобрать 5 последних</button></div>`).join('');
+      out.querySelectorAll('[data-acc]').forEach(b => b.onclick = async () => {
+        b.disabled = true; b.textContent = 'Ставлю в очередь…';
+        const res = await postJSON('api/player', {account_id: Number(b.dataset.acc), n: Number(b.dataset.n)});
+        b.textContent = res.error ? 'Ошибка' : `В очереди: ${res.queued.length}`;
+        pollJobs();
+      });
+    }
+    pollJobs();
+  };
+  pollJobs();
+}
+
+async function postJSON(url, body) {
+  try { return await (await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})).json() }
+  catch { return {error: 'Сервер не отвечает'} }
+}
+
+let lastDone = new Set();
+async function pollJobs() {
+  clearTimeout(pollTimer);
+  const box = document.getElementById('jobs');
+  if (!box) return;
+  const list = await getJSON('api/jobs', []);
+  box.innerHTML = list.length ? list.map(j => `<div style="display:flex;gap:10px;align-items:center;font-size:13px;padding:2px 0">
+    <span class="${j.status === 'done' ? 'ok' : j.status === 'error' ? 'no' : 'meh'}" style="min-width:110px">${JOB_LABEL[j.status] || j.status}</span>
+    ${j.status === 'done' ? `<a href="#m${j.match_id}">#${j.match_id}</a>` : `<span>#${j.match_id}</span>`}
+    ${j.error ? `<span class="muted">${esc(j.error)}</span>` : ''}</div>`).join('') : '';
+  const done = new Set(list.filter(j => j.status === 'done').map(j => j.match_id));
+  if ([...done].some(id => !lastDone.has(id))) { index = await getJSON('reports/index.json', []); renderGrid() }
+  lastDone = done;
+  if (list.some(j => ['queued', 'downloading', 'analyzing'].includes(j.status))) pollTimer = setTimeout(pollJobs, 3000);
+}
+
+async function renderGrid() {
+  const grid = document.getElementById('mgrid');
+  if (!grid) return;
+  const friends = new Set((await loadFriends()).map(f => f.account_id));
+  if (!index.length) {
+    grid.innerHTML = `<div class="card empty">Пока нет разобранных матчей.</div>`;
+    return;
+  }
+  grid.innerHTML = `<div class="grid matches">${index.map(m => {
+    const ru = m.players.find(p => p.hero_id === m.ruiner), mvp = m.players.find(p => p.hero_id === m.mvp);
+    const mine = m.players.filter(p => friends.has(p.account_id));
+    const date = m.start_time ? new Date(m.start_time * 1000).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'}) : '';
+    const myWin = mine.length ? mine[0].won : null;
+    return `<div class="card mcard" onclick="location.hash='m${m.match_id}'">
+      <div class="top"><b>#${m.match_id}</b><span class="muted">${date} · ${m.clock}</span></div>
+      <div>${myWin === null ? `Победа: <b class="${TEAM[m.winner]?.cls}">${TEAM[m.winner]?.name}</b>` : myWin ? '<b class="ok">Победа</b>' : '<b class="no">Поражение</b>'}</div>
+      ${mvp ? `<div style="margin-top:4px">${heroIcon(mvp.hero_id, 's')}MVP: <b>${esc(mvp.name)}</b> <span class="muted">${esc(mvp.hero)}</span></div>` : ''}
+      ${ru ? `<div style="margin-top:4px">${heroIcon(ru.hero_id, 's')}Руинер: <b class="no">${esc(ru.name)}</b> <span class="muted">${esc(ru.hero)} · ${ru.ruin}</span></div>` : ''}
+      ${mine.length ? `<div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">${mine.map(p => `<span class="pill ${verdictCls(p.verdict)}">${heroIcon(p.hero_id, 's')}${esc(p.name)} · ${p.kda} · ${p.ruin}</span>`).join('')}</div>` : ''}
+    </div>`}).join('')}</div>`;
+}
+
+/* ---------------- friends leaderboard ---------------- */
+async function showFriends() {
+  const friends = await loadFriends();
+  const rows = friends.map(f => {
+    const games = index.flatMap(m => m.players.filter(p => p.account_id === f.account_id).map(p => ({m, p})));
+    const n = games.length;
+    const avg = n ? games.reduce((s, g) => s + g.p.ruin, 0) / n : null;
+    const heroes = {};
+    games.forEach(g => heroes[g.p.hero_id] = (heroes[g.p.hero_id] || 0) + 1);
+    return {f, n, avg, heroes: Object.entries(heroes).sort((a, b) => b[1] - a[1]).slice(0, 4).map(x => +x[0]),
+      ruiner: games.filter(g => g.m.ruiner === g.p.hero_id).length,
+      mvp: games.filter(g => g.m.mvp === g.p.hero_id).length,
+      wins: games.filter(g => g.p.won).length,
+      q: games.filter(g => g.p.verdict === 'Под вопросом').length};
+  }).sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1));
+  app.innerHTML = `
+    <div class="card" style="margin-bottom:12px">
+      <div class="big" style="margin-bottom:8px">Кто из нас больше руинит</div>
+      ${rows.length ? `<div class="scroll"><table><thead><tr><th>#</th><th>Игрок</th><th>Герои</th><th>Матчей</th><th>Средний руин</th><th>Руинер матча</th><th>MVP</th><th>Под вопросом</th><th>Победы</th><th></th></tr></thead><tbody>
+      ${rows.map((r, i) => `<tr><td>${i + 1}</td><td><b>${esc(r.f.name)}</b></td>
+        <td>${r.heroes.map(h => heroIcon(h, 's')).join('')}</td>
+        <td>${r.n}</td>
+        <td>${r.avg == null ? '—' : `<span class="bar"><i style="width:${r.avg}%;background:${ruinColor(r.avg)}"></i></span>${r.avg.toFixed(0)}`}</td>
+        <td>${r.ruiner}</td><td>${r.mvp}</td><td>${r.q}</td><td>${r.wins}/${r.n}</td>
+        <td>${r.f.local ? `<button data-del="${r.f.account_id}" class="pill" style="border:none;cursor:pointer">убрать</button>` : ''}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="muted">Добавь себя и друзей ниже.</div>'}
+      <p class="muted" style="margin:10px 0 0">Руин 0–100 считается относительно своей команды: 50 — средний вклад, больше — тянул команду вниз.
+        Это эвристика, а не приговор: смерть в одиночку бывает осознанной жертвой.</p>
+    </div>
+    <div class="card">
+      <b>Добавить друга</b> <span class="muted">(Steam account id или SteamID64)</span>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <input id="fname" placeholder="Имя"><input id="fid" placeholder="account id">
+        <button class="pill" id="fadd" style="border:none;cursor:pointer;padding:5px 12px">Добавить</button>
+      </div>
+      <p class="muted">Чтобы разобрать последние игры друга: <code>python ruiner.py player &lt;account_id&gt; -n 5</code></p>
+    </div>`;
+  document.getElementById('fadd').onclick = () => {
+    let id = Number(document.getElementById('fid').value.trim());
+    if (!id) return;
+    if (id > STEAM64) id -= STEAM64;
+    const local = store.get('friends', []);
+    local.push({name: document.getElementById('fname').value.trim() || String(id), account_id: id});
+    store.set('friends', local); showFriends();
+  };
+  app.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    store.set('friends', store.get('friends', []).filter(f => f.account_id !== Number(b.dataset.del))); showFriends();
+  });
+}
+
+/* ---------------- charts ---------------- */
+function lineChart(canvas, series, N, opts = {}) {
+  const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const c = canvas.getContext('2d'); c.scale(dpr, dpr);
+  const pad = {l: 38, r: 8, t: 8, b: 18};
+  const max = Math.max(1, ...series.flatMap(s => s.data));
+  const X = i => pad.l + i / (N - 1) * (w - pad.l - pad.r), Y = v => h - pad.b - v / max * (h - pad.t - pad.b);
+  c.font = '10px system-ui'; c.fillStyle = '#8b8f99'; c.strokeStyle = '#2a2e37';
+  for (let g = 0; g <= 4; g++) {
+    const v = max * g / 4; c.beginPath(); c.moveTo(pad.l, Y(v)); c.lineTo(w - pad.r, Y(v)); c.stroke();
+    c.fillText(k(Math.round(v)), 2, Y(v) + 3);
+  }
+  for (let m = 0; m < N; m += 300) c.fillText(clock(m), X(m) - 8, h - 4);
+  for (const s of series) {
+    c.strokeStyle = s.color; c.lineWidth = s.width || 1.5; c.setLineDash(s.dash || []); c.beginPath();
+    s.data.forEach((v, i) => i ? c.lineTo(X(i), Y(v)) : c.moveTo(X(i), Y(v))); c.stroke();
+  }
+  c.setLineDash([]);
+  for (const mk of opts.marks || []) {
+    c.fillStyle = mk.color; c.fillRect(X(mk.t) - 1, pad.t, 2, h - pad.t - pad.b);
+  }
+}
+
+/* ---------------- match view ---------------- */
+async function showMatch(id) {
+  app.innerHTML = '<div class="card empty muted">Загружаю матч…</div>';
+  const r = await getJSON(`reports/${id}.json`, null);
+  if (!r) { app.innerHTML = '<div class="card empty">Матч не найден</div>'; return }
+  const friends = new Set((await loadFriends()).map(f => f.account_id));
+  const P = Object.fromEntries(r.players.map(p => [p.hero_id, p]));
+  const N = r.track[r.players[0].hero_id].x.length;
+  const ruiner = P[r.ruiner], mvp = P[r.mvp];
+  let sel = r.players.find(p => friends.has(p.account_id))?.hero_id ?? r.ruiner;
+  let t = 0, playing = false, speed = 8, tab = 'overview', filter = 'all', cat = 'all', focus = null;
+  const layers = store.get('layers', {camps: true, zips: true, statues: false, shops: true, heat: false, trail: true, names: true});
+
+  app.innerHTML = `
+  <div class="banner">
+    <a href="#" class="muted">← матчи</a>
+    <span class="big">Матч #${r.match_id}</span>
+    <span class="muted">${r.clock}</span>
+    <span>Победа: <b class="${TEAM[r.winner].cls}">${TEAM[r.winner].name}</b></span>
+    ${mvp ? `<span class="pill good">${heroIcon(mvp.hero_id, 's')}MVP: ${esc(mvp.name)}</span>` : ''}
+    ${ruiner ? `<span class="pill bad">${heroIcon(ruiner.hero_id, 's')}Руинер: ${esc(ruiner.name)}</span>` : ''}
+  </div>
+  <div class="layout">
+    <div>
+      <canvas id="map" width="1100" height="1100"></canvas>
+      <div class="controls">
+        <button id="play">▶</button><span id="clock"></span>
+        ${[1, 4, 8, 16, 32].map(s => `<button data-sp="${s}" class="${s === speed ? 'on' : ''}">${s}x</button>`).join('')}
+      </div>
+      <div class="layers">
+        ${[['camps', 'Кемпы'], ['zips', 'Зиплайны'], ['shops', 'Магазины'], ['statues', 'Статуи'], ['heat', 'Тепловая карта игрока'], ['trail', 'След'], ['names', 'Имена']]
+          .map(([k2, l]) => `<label><input type="checkbox" data-layer="${k2}" ${layers[k2] ? 'checked' : ''}> ${l}</label>`).join('')}
+      </div>
+      <canvas id="timeline" width="1100" height="100"></canvas>
+      <div class="muted" style="font-size:12px;margin-top:4px">Линия — разница душ команд (вверх — Hidden King). Метки — моменты выбранного игрока: сверху хорошие, снизу ошибки.</div>
+    </div>
+    <div class="grid">
+      <div class="card scroll" id="board"></div>
+      <div class="card" id="detail"></div>
+    </div>
+  </div>`;
+
+  const map = document.getElementById('map'), ctx = map.getContext('2d');
+  const tl = document.getElementById('timeline'), tctx = tl.getContext('2d');
+  const W = map.width, R = MAPDATA?.radius || 10752;
+  const px = x => (x + R) / (2 * R) * W, py = y => (R - y) / (2 * R) * W;
+
+  // static background: tinted minimap + ziplines + shops/statues
+  const bg = document.createElement('canvas'); bg.width = bg.height = W;
+  function buildBg() {
+    const b = bg.getContext('2d');
+    b.fillStyle = '#0d0f14'; b.fillRect(0, 0, W, W);
+    const mm = img(MAPDATA?.image);
+    if (mm?.complete && mm.naturalWidth) {
+      const tint = document.createElement('canvas'); tint.width = tint.height = W;
+      const tc = tint.getContext('2d');
+      tc.drawImage(mm, 0, 0, W, W); tc.globalCompositeOperation = 'source-in';
+      tc.fillStyle = '#323848'; tc.fillRect(0, 0, W, W);
+      b.drawImage(tint, 0, 0);
+    } else {
+      b.fillStyle = 'rgba(160,170,190,0.09)';
+      for (const tr of Object.values(r.track)) for (let i = 0; i < N; i += 2) if (tr.alive[i]) b.fillRect(px(tr.x[i]) - 1.5, py(tr.y[i]) - 1.5, 3, 3);
+    }
+    if (layers.zips) for (const z of MAPDATA?.ziplines || []) {
+      b.strokeStyle = z.color; b.globalAlpha = .55; b.lineWidth = 2.5; b.beginPath();
+      z.points.forEach(([x, y], i) => i ? b.lineTo(px(x), py(y)) : b.moveTo(px(x), py(y))); b.stroke(); b.globalAlpha = 1;
+    }
+    const ent = MAPDATA?.entities || {};
+    if (layers.statues) for (const s of ent.golden_statues || []) { b.fillStyle = '#d9b44a'; b.fillRect(px(s.x) - 2, py(s.y) - 2, 4, 4) }
+    if (layers.shops) for (const s of ent.shops || []) {
+      b.fillStyle = '#3fbf8f'; b.font = 'bold 15px system-ui'; b.textAlign = 'center'; b.textBaseline = 'middle';
+      b.fillText('$', px(s.x), py(s.y));
+    }
+    for (const s of ent.teleporters || []) { b.strokeStyle = '#b07cff'; b.lineWidth = 2; b.beginPath(); b.arc(px(s.x), py(s.y), 6, 0, 7); b.stroke() }
+    if (layers.heat) {
+      const tr = r.track[sel];
+      b.fillStyle = 'rgba(255,90,90,0.07)';
+      for (let i = 0; i < N; i++) if (tr.alive[i]) { b.beginPath(); b.arc(px(tr.x[i]), py(tr.y[i]), 9, 0, 7); b.fill() }
+    }
+  }
+  buildBg();
+  if (MAPDATA?.image) img(MAPDATA.image).onload = () => { buildBg(); draw() };
+  r.players.forEach(p => { const im = img(HEROES[p.hero_id]?.mm); if (im) im.onload = () => draw() });
+  (MAPDATA?.camps || []).forEach(c => { const im = img(c.icon); if (im) im.onload = () => draw() });
+
+  // destroyed state for every objective spot
+  const spotDead = (r.objective_spots || []).map(s => {
+    const d = r.objectives.find(o => o.team === s.team && Math.hypot(o.x - s.x, o.y - s.y) < 300);
+    return d ? d.t : Infinity;
+  });
+  const campAlive = Object.fromEntries((r.camps || []).map(c => [c.i, c.alive]));
+
+  const diffs = Array.from({length: N}, (_, i) => r.players.reduce((d, p) => d + (p.team === 2 ? 1 : -1) * (r.track[p.hero_id].nw[i] || 0), 0));
+  const maxDiff = Math.max(1000, ...diffs.map(Math.abs));
+
+  function drawTimeline() {
+    const w = tl.width, h = tl.height, mid = h / 2;
+    tctx.clearRect(0, 0, w, h);
+    tctx.strokeStyle = '#2a2e37'; tctx.beginPath(); tctx.moveTo(0, mid); tctx.lineTo(w, mid); tctx.stroke();
+    tctx.lineWidth = 2;
+    for (let i = 1; i < N; i++) {
+      tctx.strokeStyle = diffs[i] >= 0 ? TEAM[2].color : TEAM[3].color;
+      tctx.beginPath();
+      tctx.moveTo((i - 1) / N * w, mid - diffs[i - 1] / maxDiff * (mid - 8));
+      tctx.lineTo(i / N * w, mid - diffs[i] / maxDiff * (mid - 8)); tctx.stroke();
+    }
+    tctx.lineWidth = 1;
+    for (const m of P[sel].moments) {
+      tctx.fillStyle = m.good ? '#4cc38a' : '#ef5f5f';
+      tctx.fillRect(m.t / N * w - 1.5, m.good ? 0 : h - 12, 3, 12);
+    }
+    tctx.fillStyle = '#fff'; tctx.fillRect(t / N * w - 1, 0, 2, h);
+  }
+  tl.onclick = e => { const rc = tl.getBoundingClientRect(); t = (e.clientX - rc.left) / rc.width * N; focus = null; draw() };
+
+  function objShape(o, x, y, dead) {
+    ctx.strokeStyle = TEAM[o.team]?.color || '#aaa'; ctx.fillStyle = dead ? 'rgba(0,0,0,0)' : (TEAM[o.team]?.color || '#aaa') + '55';
+    ctx.globalAlpha = dead ? .35 : 1; ctx.lineWidth = 2;
+    const s = {patron: 13, walker: 10, shrine: 8, barracks: 7}[o.type] || 7;
+    ctx.beginPath();
+    if (o.type === 'shrine') { ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath() }
+    else if (o.type === 'patron') ctx.arc(x, y, s, 0, 7);
+    else ctx.rect(x - s, y - s, 2 * s, 2 * s);
+    ctx.fill(); ctx.stroke();
+    if (dead) { ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s); ctx.stroke() }
+    ctx.globalAlpha = 1;
+  }
+
+  function draw() {
+    const i = Math.min(N - 1, Math.floor(t));
+    ctx.drawImage(bg, 0, 0);
+    if (layers.camps) (MAPDATA?.camps || []).forEach((c, ci) => {
+      const alive = (campAlive[ci] || []).some(([a, b]) => t >= a && t <= b);
+      const im = img(c.icon), s = {strong: 26, medium: 22, weak: 18, vault: 22}[c.kind] || 20;
+      ctx.globalAlpha = alive ? 1 : .25;
+      ctx.fillStyle = c.kind === 'vault' ? '#3a2f12' : '#1c2a22'; ctx.strokeStyle = c.kind === 'vault' ? '#e0b24a' : '#7fd19b';
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px(c.x), py(c.y), s / 2 + 3, 0, 7); ctx.fill(); ctx.stroke();
+      if (im?.complete && im.naturalWidth) ctx.drawImage(im, px(c.x) - s / 2, py(c.y) - s / 2, s, s);
+      else { ctx.fillStyle = '#c9a25a'; ctx.beginPath(); ctx.arc(px(c.x), py(c.y), 5, 0, 7); ctx.fill() }
+      ctx.globalAlpha = 1;
+    });
+    (r.objective_spots || []).forEach((o, oi) => objShape(o, px(o.x), py(o.y), t >= spotDead[oi]));
+    for (const e of r.events || []) {
+      if (e.kind === 'rift' && t >= e.t && t - e.t < 20) {
+        ctx.strokeStyle = TEAM[e.team]?.color || '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px(e.x), py(e.y), 22, 0, 7); ctx.stroke();
+      }
+    }
+    for (const f of r.fights) if (t >= f.t && t <= f.end + 2) {
+      ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.setLineDash([6, 6]); ctx.lineWidth = 2; ctx.beginPath();
+      ctx.arc(px(f.x), py(f.y), 1500 / (2 * R) * W, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (const kl of r.kills) if (t >= kl.t && t - kl.t < 10) {
+      const a = 1 - (t - kl.t) / 10, x = px(kl.x), y = py(kl.y);
+      ctx.strokeStyle = `rgba(255,95,95,${a})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x - 9, y - 9); ctx.lineTo(x + 9, y + 9); ctx.moveTo(x + 9, y - 9); ctx.lineTo(x - 9, y + 9); ctx.stroke();
+    }
+    if (layers.trail) {
+      const st = r.track[sel];
+      ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2.5; ctx.beginPath();
+      for (let j = Math.max(0, i - 25), gap = true; j <= i; j++) {
+        if (!st.alive[j]) { gap = true; continue }
+        gap ? ctx.moveTo(px(st.x[j]), py(st.y[j])) : ctx.lineTo(px(st.x[j]), py(st.y[j])); gap = false;
+      }
+      ctx.stroke();
+    }
+    // urn carrier
+    let urnHero = null;
+    for (const e of r.events || []) { if (e.t > t) break; if (e.kind === 'urn_pick') urnHero = e.hero; if (e.kind === 'urn_done' || e.kind === 'urn_drop') urnHero = null }
+    const order = [...r.players].sort((a, b) => (a.hero_id === sel) - (b.hero_id === sel));
+    for (const p of order) {
+      const tr = r.track[p.hero_id], x = px(tr.x[i]), y = py(tr.y[i]), alive = tr.alive[i];
+      const isSel = p.hero_id === sel, rad = isSel ? 19 : 15;
+      ctx.globalAlpha = alive ? 1 : .3;
+      ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
+      const im = img(HEROES[p.hero_id]?.mm);
+      if (im?.complete && im.naturalWidth) {
+        ctx.save(); ctx.beginPath(); ctx.arc(x, y, rad - 2, 0, 7); ctx.clip();
+        if (!alive) ctx.filter = 'grayscale(1)';
+        ctx.drawImage(im, x - rad, y - rad, rad * 2, rad * 2); ctx.restore();
+      }
+      ctx.strokeStyle = TEAM[p.team].color; ctx.lineWidth = isSel ? 4 : 3; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.stroke();
+      if (isSel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, rad + 3, 0, 7); ctx.stroke() }
+      if (alive) {
+        ctx.strokeStyle = tr.hp[i] > 50 ? '#4cc38a' : tr.hp[i] > 25 ? '#e6c14a' : '#ef5f5f'; ctx.lineWidth = 3; ctx.beginPath();
+        ctx.arc(x, y, rad + (isSel ? 7 : 4), -Math.PI / 2, -Math.PI / 2 + tr.hp[i] / 100 * Math.PI * 2); ctx.stroke();
+        if (tr.ult?.[i]) { ctx.fillStyle = '#ffd34d'; ctx.beginPath(); ctx.arc(x + rad * .75, y - rad * .75, 4.5, 0, 7); ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke() }
+        if (urnHero === p.hero_id) { ctx.fillStyle = '#7fe0ff'; ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center'; ctx.fillText('⚱', x - rad, y - rad) }
+      }
+      if (layers.names || isSel) {
+        ctx.fillStyle = '#fff'; ctx.font = `${isSel ? 'bold 13px' : '11px'} system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#000'; ctx.shadowBlur = 3;
+        ctx.fillText(isSel ? `${p.name} · ${k(tr.souls?.[i] || 0)} душ` : p.hero, x, y + rad + 12);
+        ctx.shadowBlur = 0;
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (focus && focus.x != null) {
+      ctx.strokeStyle = focus.good ? '#4cc38a' : '#ef5f5f'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(px(focus.x), py(focus.y), 36 + 6 * Math.sin(performance.now() / 150), 0, 7); ctx.stroke();
+    }
+    document.getElementById('clock').textContent = `${clock(t)} / ${r.clock}`;
+    drawTimeline();
+  }
+
+  function seek(sec, f) {
+    t = Math.max(0, sec); playing = false; document.getElementById('play').textContent = '▶'; focus = f || null; draw();
+    if (innerWidth < 1100) map.scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
+
+  function renderBoard() {
+    const team = n => {
+      const ps = r.players.filter(p => p.team === n).sort((a, b) => a.ruin - b.ruin);
+      return `<div class="teamhead ${TEAM[n].cls}">${TEAM[n].name} ${r.winner === n ? '— победа' : ''}</div>
+      <table><thead><tr><th>Игрок</th><th>K/D/A</th><th>Души</th><th>Урон/м</th><th>Руинометр</th><th></th></tr></thead><tbody>
+      ${ps.map(p => `<tr data-h="${p.hero_id}" class="click ${p.hero_id === sel ? 'sel' : ''}">
+        <td>${heroIcon(p.hero_id)}${friends.has(p.account_id) ? '★ ' : ''}<b>${esc(p.name)}</b> <span class="muted">${esc(p.hero)}</span></td>
+        <td>${p.stats.kills}/${p.stats.deaths}/${p.stats.assists}</td><td>${k(p.stats.net_worth)}</td><td>${p.stats.dpm}</td>
+        <td><span class="bar"><i style="width:${p.ruin}%;background:${ruinColor(p.ruin)}"></i></span>${p.ruin}</td>
+        <td><span class="pill ${verdictCls(p.verdict)}">${p.verdict}</span></td></tr>`).join('')}
+      </tbody></table>`;
+    };
+    const board = document.getElementById('board');
+    board.innerHTML = team(2) + '<div style="height:10px"></div>' + team(3);
+    board.querySelectorAll('tr[data-h]').forEach(tr => tr.onclick = () => {
+      sel = Number(tr.dataset.h); focus = null; renderBoard(); renderDetail(); if (layers.heat) buildBg(); draw();
+    });
+  }
+
+  const CATS = [['all', 'Все'], ['death', 'Смерти'], ['fight', 'Драки'], ['farm', 'Фарм'], ['ult', 'Ульта'], ['obj', 'Объекты'], ['kill', 'Убийства']];
+  const catOf = m => ({death: 'death', fight: 'fight', missed_fight: 'fight', split: 'fight', farm: 'farm', lane: 'farm', ult: 'ult',
+                       objective: 'obj', urn: 'obj', shutdown: 'kill', solo: 'kill', multikill: 'kill'})[m.kind] || 'all';
+
+  function renderDetail() {
+    const p = P[sel], s = p.stats, el = document.getElementById('detail');
+    const head = `
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px">${heroIcon(p.hero_id)}<div><span class="big">${esc(p.name)}</span>
+          <span class="muted">${esc(p.hero)} · ${TEAM[p.team].name} · ${p.won ? '<span class="ok">победа</span>' : '<span class="no">поражение</span>'}</span></div></div>
+        <span class="pill ${verdictCls(p.verdict)}">${p.verdict} · руин ${p.ruin}</span>
+      </div>
+      <div class="tabs">${[['overview', 'Обзор'], ['moments', `Моменты (${p.moments.length})`], ['farm', 'Фарм'], ['fights', `Драки (${p.fights.length})`], ['ult', 'Ульта']]
+        .map(([k2, l]) => `<button data-tab="${k2}" class="${tab === k2 ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    let body = '';
+    if (tab === 'overview') {
+      body = `
+      <div class="kpis">
+        <div class="kpi"><b>${s.kills}/${s.deaths}/${s.assists}</b><span>K/D/A · участие ${(s.kp * 100).toFixed(0)}%</span></div>
+        <div class="kpi"><b>${k(s.net_worth)}</b><span>души · ${s.spm}/мин</span></div>
+        <div class="kpi"><b>${s.dpm}</b><span>урон по героям/мин</span></div>
+        <div class="kpi"><b>${k(s.objective_damage)}</b><span>урон по объектам</span></div>
+        <div class="kpi"><b class="${s.lane_diff >= 0 ? 'ok' : 'no'}">${s.lane_diff > 0 ? '+' : ''}${s.lane_diff}</b><span>линия к 10:00</span></div>
+        <div class="kpi"><b>${s.last_hits}</b><span>крипов · ${s.camps} кемп-крипов</span></div>
+        <div class="kpi"><b>${s.dead_pct}%</b><span>времени мёртв</span></div>
+        <div class="kpi"><b>${p.ult.casts}</b><span>ульт · простой ${p.ult.idle_pct}%</span></div>
+      </div>
+      <div class="chips">${p.why_bad.map(x => `<span class="b">${esc(x)}</span>`).join('')}${p.why_good.map(x => `<span class="g">${esc(x)}</span>`).join('')}</div>
+      ${p.tips.length ? `<b style="display:block;margin-top:10px">Что улучшить</b><ul class="tips">${p.tips.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p class="muted">Явных системных проблем не найдено.</p>'}
+      <b style="display:block;margin-top:10px">Самое важное</b>
+      ${momentList([...p.moments].sort((a, b) => b.weight - a.weight).slice(0, 6).sort((a, b) => a.t - b.t))}`;
+    } else if (tab === 'moments') {
+      const list = p.moments.filter(m => (filter === 'all' || (filter === 'good') === m.good) && (cat === 'all' || catOf(m) === cat));
+      body = `
+      <div class="filters">${[['all', 'Все'], ['bad', 'Ошибки'], ['good', 'Хорошее']].map(([k2, l]) => `<button data-f="${k2}" class="${filter === k2 ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="filters">${CATS.map(([k2, l]) => `<button data-c="${k2}" class="${cat === k2 ? 'on' : ''}">${l} (${k2 === 'all' ? p.moments.length : p.moments.filter(m => catOf(m) === k2).length})</button>`).join('')}</div>
+      ${momentList(list)}`;
+    } else if (tab === 'farm') {
+      const src = p.farm.sources, tot = src.reduce((a, b) => a + b.gold, 0) || 1;
+      body = `
+      <div class="legend"><span><i style="background:#fff"></i>${esc(p.name)}</span><span><i style="background:#ef5f5f"></i>враги по линии</span>
+        <span><i style="background:${TEAM[p.team].color}"></i>среднее своей команды</span><span><i style="background:#8b8f99"></i>среднее лобби</span></div>
+      <canvas class="chart" id="nwChart"></canvas>
+      <div class="kpis">
+        <div class="kpi"><b>${s.spm}</b><span>душ в минуту</span></div>
+        <div class="kpi"><b>${s.camp_share}%</b><span>душ с кемпов</span></div>
+        <div class="kpi"><b>${s.hoard_pct}%</b><span>времени с 3000+ в кармане</span></div>
+        <div class="kpi"><b>${s.farm_bad}</b><span>провалов фарма</span></div>
+      </div>
+      <b>Откуда души</b>
+      ${src.map(x => `<div class="srcrow"><span>${esc(x.name)}</span><div class="track"><i style="width:${x.gold / src[0].gold * 100}%"></i></div><span>${k(x.gold)} · ${Math.round(x.gold / tot * 100)}%</span></div>`).join('')}
+      <b style="display:block;margin-top:10px">Фарм по ходу матча</b>
+      ${momentList(p.moments.filter(m => catOf(m) === 'farm'))}`;
+    } else if (tab === 'fights') {
+      body = p.fights.length ? `<div class="scroll"><table><thead><tr><th>Время</th><th>Итог</th><th>Счёт</th><th>K+A</th><th>Урон</th><th>% команды</th><th>Получил</th><th>Умер</th><th>Ульта</th></tr></thead><tbody>
+        ${p.fights.map(f => `<tr class="click" data-t="${f.t}"><td>${f.clock}</td>
+          <td class="${f.res === 'W' ? 'ok' : f.res === 'L' ? 'no' : 'meh'}">${f.res === 'W' ? 'победа' : f.res === 'L' ? 'поражение' : 'размен'}</td>
+          <td>${f.score}</td><td>${f.ka}</td><td>${k(f.dmg)}</td><td>${f.share}%</td><td>${k(f.taken)}</td>
+          <td>${f.died ? '<span class="no">да</span>' : '—'}</td>
+          <td>${{used: '<span class="ok">прожал</span>', ready: '<span class="no">была готова</span>', cd: '<span class="muted">на кд</span>', none: '<span class="muted">нет</span>'}[f.ult]}</td></tr>`).join('')}
+        </tbody></table></div>
+        <p class="muted" style="font-size:12px">Клик по строке перематывает реплей. «Была готова» — ульта не прожата, хотя была доступна с начала драки.</p>
+        ${momentList(p.moments.filter(m => catOf(m) === 'fight'))}` : '<p class="muted">Тимфайтов с участием игрока не найдено.</p>';
+    } else if (tab === 'ult') {
+      const u = p.ult;
+      body = `
+      <div class="kpis">
+        <div class="kpi"><b>${u.unlocked || '—'}</b><span>ульта открыта</span></div>
+        <div class="kpi"><b>${u.casts}</b><span>прожато раз</span></div>
+        <div class="kpi"><b class="${u.idle_pct >= 50 ? 'no' : ''}">${u.idle_pct}%</b><span>времени лежала готовой</span></div>
+        <div class="kpi"><b class="${u.deaths_ready ? 'no' : 'ok'}">${u.deaths_ready}</b><span>смертей с готовой ультой</span></div>
+        <div class="kpi"><b class="ok">${u.fights_used}</b><span>драк с ультой</span></div>
+        <div class="kpi"><b class="${u.fights_unused ? 'no' : ''}">${u.fights_unused}</b><span>драк без ульты, хотя была готова</span></div>
+      </div>
+      <canvas class="chart" id="ultChart" style="height:60px"></canvas>
+      <div class="muted" style="font-size:12px;margin:4px 0 8px">Жёлтое — ульта готова, тёмные метки — касты.</div>
+      ${momentList(p.moments.filter(m => catOf(m) === 'ult' || (m.kind === 'death' && m.text.includes('ульта'))))}`;
+    }
+    el.innerHTML = head + body;
+    el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; renderDetail() });
+    el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; renderDetail() });
+    el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { cat = b.dataset.c; renderDetail() });
+    el.querySelectorAll('tr[data-t]').forEach(tr => tr.onclick = () => seek(Number(tr.dataset.t) - 3));
+    el.querySelectorAll('.mo').forEach(d => d.onclick = () => {
+      const m = JSON.parse(d.dataset.m), tr = r.track[sel], i = Math.min(N - 1, Math.floor(m.t));
+      seek(m.t - 5, {x: m.x ?? tr.x[i], y: m.y ?? tr.y[i], good: m.good});
+    });
+    if (tab === 'farm') drawFarm(p);
+    if (tab === 'ult') drawUlt(p);
+  }
+
+  function momentList(list) {
+    return `<div class="moments">${list.map(m => `<div class="mo" data-m='${esc(JSON.stringify({t: m.t, x: m.x, y: m.y, good: m.good}))}'><span class="c">${m.clock}</span>
+      <div><b class="${m.good ? 'g' : 'b'}">${esc(m.title)}</b><div class="muted">${esc(m.text)}</div></div></div>`).join('') || '<div class="muted">Пусто</div>'}</div>`;
+  }
+
+  function avg(ids) { return Array.from({length: N}, (_, i) => ids.reduce((a, h) => a + (r.track[h].nw[i] || 0), 0) / Math.max(1, ids.length)) }
+  function drawFarm(p) {
+    const foes = r.players.filter(o => o.team !== p.team && o.lane === p.lane).map(o => o.hero_id);
+    const mates = r.players.filter(o => o.team === p.team && o.hero_id !== p.hero_id).map(o => o.hero_id);
+    lineChart(document.getElementById('nwChart'), [
+      {data: avg(r.players.map(o => o.hero_id)), color: '#8b8f99', dash: [4, 4]},
+      {data: avg(mates), color: TEAM[p.team].color},
+      {data: avg(foes), color: '#ef5f5f'},
+      {data: r.track[p.hero_id].nw, color: '#fff', width: 2.5},
+    ], N, {marks: p.moments.filter(m => m.kind === 'farm').map(m => ({t: m.t, color: m.good ? '#4cc38a88' : '#ef5f5f88'}))});
+  }
+  function drawUlt(p) {
+    const c = document.getElementById('ultChart'), dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    c.width = w * dpr; c.height = h * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr);
+    const u = r.track[p.hero_id].ult || [];
+    g.fillStyle = '#ffd34d';
+    u.forEach((v, i) => { if (v) g.fillRect(i / N * w, 10, Math.ceil(w / N), h - 20) });
+    g.fillStyle = '#ef5f5f';
+    r.kills.filter(kl => kl.victim === p.hero_id).forEach(kl => g.fillRect(kl.t / N * w - 1, 0, 2, h));
+    g.fillStyle = '#111';
+    (p.ult.cast_times || []).forEach(ct => { const [mm, ss] = ct.split(':').map(Number); g.fillRect((mm * 60 + ss) / N * w - 1.5, 4, 3, h - 8) });
+  }
+
+  document.getElementById('play').onclick = e => { playing = !playing; e.target.textContent = playing ? '❚❚' : '▶'; if (t >= N - 1) t = 0 };
+  app.querySelectorAll('[data-sp]').forEach(bt => bt.onclick = () => {
+    speed = Number(bt.dataset.sp); app.querySelectorAll('[data-sp]').forEach(x => x.classList.toggle('on', x === bt));
+  });
+  app.querySelectorAll('[data-layer]').forEach(cb => cb.onchange = () => {
+    layers[cb.dataset.layer] = cb.checked; store.set('layers', layers); buildBg(); draw();
+  });
+
+  let last = performance.now(), alive = true;
+  function loop(now) {
+    if (!alive) return;
+    const dt = (now - last) / 1000; last = now;
+    if (playing) { t = Math.min(N - 1, t + dt * speed); if (t >= N - 1) playing = false }
+    if (playing || focus) draw();
+    requestAnimationFrame(loop);
+  }
+  stopReplay = () => { alive = false };
+  renderBoard(); renderDetail(); draw(); requestAnimationFrame(loop);
+}
+
+route();
+</script>
+</body>
+</html>

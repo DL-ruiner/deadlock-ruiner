@@ -1,0 +1,98 @@
+name: ruiner
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      request:
+        description: "Match IDs or 'player <nick>' (empty = friends' new matches)"
+        required: false
+  issues:
+    types: [opened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: ruiner
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore saved reports
+        run: |
+          mkdir -p web/reports
+          if git fetch --depth=1 origin data; then
+            git worktree add /tmp/saved FETCH_HEAD
+            cp -r /tmp/saved/reports/. web/reports/ || true
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Analyze issue request
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.issue.title }}
+          BODY: ${{ github.event.issue.body }}
+          NUMBER: ${{ github.event.issue.number }}
+        run: |
+          python ruiner.py request "$TITLE
+          $BODY" | tee result.txt
+          printf '%s\n\nСайт обновится через пару минут после окончания сборки.' "$(cat result.txt)" > comment.txt
+          gh issue comment "$NUMBER" --body-file comment.txt
+          gh issue close "$NUMBER"
+
+      - name: Analyze manual request
+        if: github.event_name == 'workflow_dispatch' && inputs.request != ''
+        env:
+          REQUEST: ${{ inputs.request }}
+        run: python ruiner.py request "$REQUEST"
+
+      - name: Analyze friends' new matches
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.request == '')
+        run: python ruiner.py friends -n 5
+
+      - name: Save reports
+        if: github.event_name != 'push'
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          python ruiner.py reindex
+          mkdir -p /tmp/out/reports
+          cp web/reports/*.json /tmp/out/reports/
+          cd /tmp/out
+          git init -q -b data
+          git add .
+          git -c user.name=ruiner-bot -c user.email=ruiner-bot@users.noreply.github.com commit -qm "reports"
+          git push -fq "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git" data
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: analyze
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - id: pages
+        uses: actions/deploy-pages@v4

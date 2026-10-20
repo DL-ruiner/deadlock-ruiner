@@ -1,0 +1,8 @@
+.venv/
+demos/
+openapi.json
+__pycache__/
+site/
+web/reports/
+site_files.txt
+.claude/
