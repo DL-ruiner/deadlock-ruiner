@@ -189,7 +189,8 @@ async function loadStatic() {
   if (!MAPDATA) [MAPDATA, HEROES, ITEMS, BENCH, CONFIG] = await Promise.all([
     getJSON('assets/map.json', null), getJSON('assets/heroes.json', {}), getJSON('assets/items.json', {}),
     getJSON('assets/bench.json', null), getJSON('config.json', {})]);
-  if (HAS_API === null) HAS_API = await fetch('api/ping', {cache: 'no-store'}).then(r => r.ok).catch(() => false);
+  if (HAS_API === null) HAS_API = location.hostname.endsWith('github.io') ? false
+    : await fetch('api/ping', {cache: 'no-store'}).then(r => r.ok).catch(() => false);
   const file = await getJSON('friends.json', []);
   const all = [...file, ...store.get('friends', []).map(f => ({...f, local: true}))];
   FRIENDS = all.filter((f, i) => all.findIndex(g => g.account_id === f.account_id) === i);
