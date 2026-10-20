@@ -24,24 +24,31 @@ def _unpack(raw: Path, out: Path) -> None:
             shutil.copyfileobj(src, dst)
 
 
-def fetch_demo(match_id: int) -> Path:
+def demo_url(match_id: int) -> str:
+    """Replay URL from deadlock-api; new matches cost Steam quota (a few per hour per IP)."""
+    for attempt in range(3):
+        r = requests.get(f"{API}/matches/{match_id}/salts", timeout=30)
+        wait = int(r.headers.get("Retry-After") or 20)
+        if r.status_code not in (429, 503) or wait > 120:
+            break
+        time.sleep(wait)
+    if r.status_code in (429, 503):
+        raise RuntimeError(f"Steam busy for match {match_id}, retry later")
+    r.raise_for_status()
+    url = r.json().get("demo_url")
+    if not url:
+        raise RuntimeError(f"Valve has no replay for match {match_id} (expired or not recorded)")
+    return url
+
+
+def fetch_demo(match_id: int, url: str | None = None) -> Path:
     DEMOS.mkdir(exist_ok=True)
     out = DEMOS / f"{match_id}.dem"
     if out.exists():
         return out
     raw = DEMOS / f"{match_id}.raw"
     if not raw.exists():
-        for attempt in range(4):
-            r = requests.get(f"{API}/matches/{match_id}/salts", timeout=30)
-            if r.status_code not in (429, 503):
-                break
-            time.sleep(min(60, int(r.headers.get("Retry-After") or 20)))
-        if r.status_code in (429, 503):
-            raise RuntimeError(f"Steam busy for match {match_id}, retry later")
-        r.raise_for_status()
-        url = r.json().get("demo_url")
-        if not url:
-            raise RuntimeError(f"Valve has no replay for match {match_id} (expired or not recorded)")
+        url = url or demo_url(match_id)
         print("downloading", url)
         with requests.get(url, stream=True, timeout=600) as resp:
             resp.raise_for_status()

@@ -68,11 +68,11 @@ def run_file(path, start_time=None):
     return rep
 
 
-def run_match(match_id, keep=False, start_time=None):
+def run_match(match_id, keep=False, start_time=None, url=None):
     if (REPORTS / f"{match_id}.json").exists():
         print(f"match {match_id}: already analyzed", file=sys.stderr)
         return
-    demo = fetch_demo(match_id)
+    demo = fetch_demo(match_id, url)
     try:
         run_file(demo, start_time)
     finally:
@@ -153,6 +153,7 @@ def run_friends(n):
 def run_request(text):
     """Handle a free-form request; prints a short report for the issue comment."""
     import re
+    urls = {}
     if re.search(r"(?i)player|игрок", text):
         from server import resolve_player
         query = re.sub(r"(?i)^.*?(player|игрок)\s*:?\s*", "", text).strip().splitlines()[0]
@@ -167,7 +168,9 @@ def run_request(text):
         todo = [(m["match_id"], m["start_time"]) for m in sorted(r.json(), key=lambda m: -m["start_time"])[:5]]
     else:
         limit = 30 if re.search(r"(?i)sync", text) else 5
-        todo = [(int(x), None) for x in dict.fromkeys(re.findall(r"\d{8,}", text))][:limit]
+        urls = {int(mid): u for mid, u in re.findall(r"(\d{8,})=(https?://\S+)", text)}
+        text_ids = re.sub(r"=https?://\S+", "", text)
+        todo = [(int(x), None) for x in dict.fromkeys(re.findall(r"\d{8,}", text_ids))][:limit]
         if re.search(r"(?i)reanalyze|переразобрать", text):
             for mid, _ in todo:
                 old = REPORTS / f"{mid}.json"
@@ -178,7 +181,7 @@ def run_request(text):
         print("Не нашёл ID матча. Напиши в заголовке номер матча, например: match 119848007")
     for mid, st in todo:
         try:
-            run_match(mid, start_time=st)
+            run_match(mid, start_time=st, url=urls.get(mid))
             print(f"- {mid}: готово")
         except Exception as e:
             if _transient(e):

@@ -32,7 +32,16 @@ def main():
     print("new matches:", *found)
     if "--dry" in sys.argv:
         return
-    request = "sync " + " ".join(map(str, found))
+    # resolve replay URLs from this PC's IP so GitHub doesn't spend its own Steam quota
+    from fetch import demo_url
+    parts = []
+    for mid in found:
+        try:
+            parts.append(f"{mid}={demo_url(mid)}")
+        except Exception as e:
+            print(f"{mid}: {e}")
+            parts.append(str(mid))
+    request = "sync " + " ".join(parts)
     subprocess.run(["gh", "workflow", "run", "ruiner.yml", "-R", REPO, "-f", f"request={request}"], check=True)
     STATE.write_text(json.dumps(sorted(sent | set(found))))
     print("sent to GitHub, the site updates in ~5-10 minutes")
