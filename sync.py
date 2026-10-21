@@ -103,7 +103,9 @@ def upload_replays(state, starts, in_match):
             continue
         packed = tmp / f"{f.stem}.dem.zst"
         with f.open("rb") as src, packed.open("wb") as dst:
-            zstandard.ZstdCompressor(level=3).copy_stream(src, dst)
+            # level 9 + long-distance matching: measured best compress + upload time on a 0.8 MB/s uplink
+            params = zstandard.ZstdCompressionParameters.from_level(9, threads=-1, enable_ldm=True, window_log=27)
+            zstandard.ZstdCompressor(compression_params=params).copy_stream(src, dst)
         if gh("release", "view", "inbox", "-R", REPO, check=False).returncode:
             gh("release", "create", "inbox", "-R", REPO, "--title", "inbox", "--notes", "Temporary replay uploads, removed after analysis")
         gh("release", "upload", "inbox", str(packed), "-R", REPO, "--clobber")
