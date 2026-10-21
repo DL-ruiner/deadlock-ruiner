@@ -58,6 +58,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.request != ''
         env:
           REQUEST: ${{ inputs.request }}
+          GH_TOKEN: ${{ github.token }}
         run: python ruiner.py request "$REQUEST"
 
       - name: Analyze friends' new matches

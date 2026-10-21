@@ -62,6 +62,59 @@ def matches_in_log(path):
     return {mid: (started[mid], ended.get(mid)) for mid in started}
 
 
+def replay_files():
+    """Replays saved by the in-game "Download Replay" button."""
+    out = []
+    for log in console_logs():
+        d = log.parent / "replays"
+        if d.is_dir():
+            out += [f for f in d.iterdir() if f.is_file() and f.suffix == ".dem"]
+    return out
+
+
+def on_site():
+    try:
+        r = requests.get(f"https://raw.githubusercontent.com/{REPO}/data/reports/index.json", timeout=20)
+        return {m["match_id"] for m in r.json()} if r.ok else set()
+    except Exception:
+        return set()
+
+
+def gh(*args, check=True):
+    exe = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"
+    return subprocess.run([exe, *args], check=check, capture_output=True, text=True,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def upload_replays(state, starts, in_match):
+    """Compress new downloaded replays and hand them to the bot through a GitHub release."""
+    done = set(state.setdefault("uploaded", []))
+    fresh = [f for f in replay_files() if f.name not in done and time.time() - f.stat().st_mtime > 20]
+    if not fresh or in_match:
+        return
+    known = on_site()
+    import zstandard
+    tmp = ROOT / "demos"
+    tmp.mkdir(exist_ok=True)
+    for f in fresh:
+        mid = int(m.group()) if (m := re.search(r"\d{8,}", f.stem)) else None
+        if mid in known:
+            done.add(f.name)
+            continue
+        packed = tmp / f"{f.stem}.dem.zst"
+        with f.open("rb") as src, packed.open("wb") as dst:
+            zstandard.ZstdCompressor(level=3).copy_stream(src, dst)
+        if gh("release", "view", "inbox", "-R", REPO, check=False).returncode:
+            gh("release", "create", "inbox", "-R", REPO, "--title", "inbox", "--notes", "Temporary replay uploads, removed after analysis")
+        gh("release", "upload", "inbox", str(packed), "-R", REPO, "--clobber")
+        packed.unlink(missing_ok=True)
+        when = f"@{int(starts[mid])}" if mid in starts and starts[mid] else ""
+        gh("workflow", "run", "ruiner.yml", "-R", REPO, "-f", f"request=upload {packed.name}{when}")
+        done.add(f.name)
+        print(f"uploaded replay {f.name}")
+    state["uploaded"] = sorted(done)
+
+
 def game_running():
     out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq deadlock.exe", "/NH"], capture_output=True, text=True,
                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
@@ -101,9 +154,11 @@ def main():
     now = time.time()
     running = game_running()
 
-    ready, later = [], []
+    ready, later, starts, in_match = [], [], {}, False
     for log in console_logs():
         for mid, (start, end) in matches_in_log(log).items():
+            starts[mid] = start
+            in_match = in_match or (running and not end and start and now - start < 3 * 3600)
             if mid in sent:
                 continue
             finished_at = end or (None if running else log.stat().st_mtime)
@@ -113,10 +168,17 @@ def main():
                 ready.append((mid, finished_at, start))
             else:
                 later.append(mid)
+    if "--dry" not in sys.argv:
+        try:
+            upload_replays(state, starts, in_match)
+        except Exception as e:
+            print("upload failed:", e)
     queue = [m for m in waiting() if m not in {r[0] for r in ready}]
     print("ready:", *[r[0] for r in ready] or ["-"], "| still playing or too fresh:", *later or ["-"],
           "| bot queue:", *queue or ["-"])
     if "--dry" in sys.argv or not (ready or queue):
+        STATE.write_text(json.dumps({**state, "sent": sorted(sent), "quota_until": quota_until,
+                                     "tries": {str(m): t for m, t in tries.items() if m not in sent}}))
         return
 
     parts, quota = [], now >= quota_until
@@ -143,13 +205,13 @@ def main():
             parts.append(f"{mid}{when}")  # let the bot try on its own
             sent.add(mid)
     if parts:
-        gh = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"
-        subprocess.run([gh, "workflow", "run", "ruiner.yml", "-R", REPO, "-f", "request=sync " + " ".join(parts)],
+        gh_exe = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"
+        subprocess.run([gh_exe, "workflow", "run", "ruiner.yml", "-R", REPO, "-f", "request=sync " + " ".join(parts)],
                        check=True, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         print(f"sent {len(parts)} matches, the site updates in ~5-10 minutes")
     elif not quota:
         print(f"Steam quota used up, waiting until {datetime.datetime.fromtimestamp(quota_until):%H:%M}")
-    STATE.write_text(json.dumps({"sent": sorted(sent), "quota_until": quota_until,
+    STATE.write_text(json.dumps({**state, "sent": sorted(sent), "quota_until": quota_until,
                                  "tries": {str(m): t for m, t in tries.items() if m not in sent}}))
 
 

@@ -181,10 +181,34 @@ def fill_dates():
     rebuild_index()
 
 
+def run_upload(asset, start_time=None):
+    """A replay the player downloaded in game and the sync script put into the 'inbox' release."""
+    import os
+    import subprocess
+    from fetch import DEMOS, _unpack
+    repo = os.environ.get("GITHUB_REPOSITORY", json.loads((WEB / "config.json").read_text(encoding="utf-8"))["repo"])
+    DEMOS.mkdir(exist_ok=True)
+    subprocess.run(["gh", "release", "download", "inbox", "-p", asset, "-D", str(DEMOS), "-R", repo, "--clobber"], check=True)
+    packed = DEMOS / asset
+    dem = DEMOS / (asset.split(".")[0] + ".dem")
+    try:
+        _unpack(packed, dem)
+        rep = run_file(dem, start_time)
+        print(f"- {rep['match_id']}: готово (из скачанного в игре повтора)")
+    finally:
+        packed.unlink(missing_ok=True)
+        dem.unlink(missing_ok=True)
+        subprocess.run(["gh", "release", "delete-asset", "inbox", asset, "-y", "-R", repo], check=False)
+
+
 def run_request(text):
     """Handle a free-form request; prints a short report for the issue comment."""
     import re
     urls = {}
+    up = re.search(r"(?i)upload\s+(\S+?\.dem(?:\.zst)?)(?:@(\d+))?(?:\s|$)", text)
+    if up:
+        run_upload(up.group(1), int(up.group(2)) if up.group(2) else None)
+        return
     if re.search(r"(?i)player|игрок", text):
         from server import resolve_player
         query = re.sub(r"(?i)^.*?(player|игрок)\s*:?\s*", "", text).strip().splitlines()[0]
