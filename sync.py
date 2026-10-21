@@ -117,6 +117,34 @@ def upload_replays(state, starts, in_match):
     state["uploaded"] = sorted(done)
 
 
+LIVE_WINDOW = 4 * 60  # the broadcast keeps ~5 minutes, so the recorder must start early
+
+
+def start_live(state, starts, ends_known, now):
+    """Hand a match that just started to the bot so it records the broadcast."""
+    done = set(state.setdefault("live", []))
+    tries = state.setdefault("live_tries", {})
+    spectate_until = state.get("spectate_until", 0)
+    for mid, start in starts.items():
+        if mid in done or mid in ends_known or not start or now - start > LIVE_WINDOW + 120:
+            continue
+        if now - start < 30:  # give the server a moment to begin broadcasting
+            continue
+        try:
+            url = live_url(mid, allow_spectate=now >= spectate_until and tries.get(str(mid), 0) < 2)
+        except QuotaError as e:
+            state["spectate_until"] = now + e.wait + 30
+            url = None
+        if not url:
+            tries[str(mid)] = tries.get(str(mid), 0) + 1
+            continue
+        when = f"@{int(start)}"
+        gh("workflow", "run", "ruiner.yml", "-R", REPO, "-f", f"request=live {mid}={url}{when}")
+        done.add(mid)
+        print(f"live recording requested for {mid}")
+    state["live"] = sorted(done)[-50:]
+
+
 def game_running():
     out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq deadlock.exe", "/NH"], capture_output=True, text=True,
                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
@@ -138,6 +166,25 @@ class QuotaError(RuntimeError):
         self.wait = wait
 
 
+def live_url(mid, allow_spectate):
+    """Broadcast URL: free if someone already opened it, otherwise one spectate request (6 per hour per IP)."""
+    try:
+        for e in requests.get(f"{API}/matches/live/urls", timeout=20).json():
+            if e.get("match_id") == mid:
+                return e["broadcast_url"]
+    except Exception:
+        pass
+    if not allow_spectate:
+        return None
+    r = requests.get(f"{API}/matches/{mid}/live/url", timeout=30)
+    if r.status_code in (429, 503):
+        raise QuotaError(int(r.headers.get("Retry-After") or 600))
+    if not r.ok:
+        return None
+    data = r.json()
+    return data.get("broadcast_url") or data.get("url") if isinstance(data, dict) else None
+
+
 def demo_url(mid):
     r = requests.get(f"{API}/matches/{mid}/salts", timeout=30)
     if r.status_code in (429, 503):
@@ -156,10 +203,11 @@ def main():
     now = time.time()
     running = game_running()
 
-    ready, later, starts, in_match = [], [], {}, False
+    ready, later, starts, in_match, all_matches = [], [], {}, False, {}
     for log in console_logs():
         for mid, (start, end) in matches_in_log(log).items():
             starts[mid] = start
+            all_matches[mid] = (start, end)
             in_match = in_match or (running and not end and start and now - start < 3 * 3600)
             if mid in sent:
                 continue
@@ -175,6 +223,10 @@ def main():
             upload_replays(state, starts, in_match)
         except Exception as e:
             print("upload failed:", e)
+        try:
+            start_live(state, starts, ends_known={m for m, (s0, e0) in all_matches.items() if e0}, now=now)
+        except Exception as e:
+            print("live failed:", e)
     queue = [m for m in waiting() if m not in {r[0] for r in ready}]
     print("ready:", *[r[0] for r in ready] or ["-"], "| still playing or too fresh:", *later or ["-"],
           "| bot queue:", *queue or ["-"])

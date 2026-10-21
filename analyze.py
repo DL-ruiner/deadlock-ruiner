@@ -184,7 +184,7 @@ def camp_states(m):
     return out, cleared_by
 
 
-def analyze(path):
+def analyze(path, match_id=None):
     m = Match(path)
     d = m.d
     heroes = [p["hero_id"] for p in m.players]
@@ -668,6 +668,9 @@ def analyze(path):
                 z[h][key] = w * (stats[h][key] - mu) / sd
     wsum = sum(abs(w) for w, _, _ in metrics.values())
     winner = d.winning_team_num
+    if winner is None:  # broadcast recordings: the side whose Patron fell lost
+        fallen = [o for o in objectives_out if o["type"] == "patron"]
+        winner = (5 - fallen[-1]["team"]) if fallen else None
     out_players = []
     for h in heroes:
         p = m.by_hero[h]
@@ -739,7 +742,7 @@ def analyze(path):
                           "assists": k["assister_hero_ids"] or [], "x": round(r.get("x", 0)), "y": round(r.get("y", 0))})
 
     return {
-        "match_id": d.match_id, "duration": round(m.end_s), "clock": _clock(m.end_s), "build": d.build,
+        "match_id": d.match_id or match_id, "duration": round(m.end_s), "clock": _clock(m.end_s), "build": d.build,
         "winner": winner, "teams": {str(k): v for k, v in m.teams.items()},
         "players": out_players,
         "ruiner": ruiner and ruiner["hero_id"], "mvp": mvp and mvp["hero_id"],

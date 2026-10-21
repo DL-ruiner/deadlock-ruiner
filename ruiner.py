@@ -201,10 +201,40 @@ def run_upload(asset, start_time=None):
         subprocess.run(["gh", "release", "delete-asset", "inbox", asset, "-y", "-R", repo], check=False)
 
 
+def run_live(mid, url, start_time=None):
+    """Record the match from Valve's broadcast while it is played, then analyze it like a replay."""
+    import broadcast
+    from fetch import DEMOS
+    out = DEMOS / f"live_{mid}"
+    dem = DEMOS / f"{mid}.dem"
+    try:
+        broadcast.record(url, out)
+        broadcast.build(out, dem, mid)
+        rep = analyze(dem, mid)
+        if start_time:
+            rep["start_time"] = start_time
+        save_report(rep, REPORTS)
+        from notify import mark_new
+        mark_new(rep["match_id"])
+        rebuild_index()
+        print(f"- {mid}: готово (записано с трансляции)")
+    except Exception as e:
+        print(f"- {mid}: запись трансляции не удалась ({str(e)[:120]}), матч остаётся в очереди")
+        _save_set("pending.json", _load_set("pending.json") | {mid})
+    finally:
+        import shutil
+        shutil.rmtree(out, ignore_errors=True)
+        dem.unlink(missing_ok=True)
+
+
 def run_request(text):
     """Handle a free-form request; prints a short report for the issue comment."""
     import re
     urls = {}
+    live = re.search(r"(?i)live\s+(\d{8,})=(https?://[^\s@]+)(?:@(\d+))?", text)
+    if live:
+        run_live(int(live.group(1)), live.group(2), int(live.group(3)) if live.group(3) else None)
+        return
     up = re.search(r"(?i)upload\s+(\S+?\.dem(?:\.zst)?)(?:@(\d+))?(?:\s|$)", text)
     if up:
         run_upload(up.group(1), int(up.group(2)) if up.group(2) else None)
