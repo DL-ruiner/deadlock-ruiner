@@ -110,7 +110,7 @@ def main():
             n_try, last = tries.get(mid, [0, 0])
             wait = RETRY_STEPS[min(n_try, len(RETRY_STEPS) - 1)] * 60
             if finished_at and now - finished_at >= REPLAY_DELAY and now - last >= wait:
-                ready.append((mid, finished_at))
+                ready.append((mid, finished_at, start))
             else:
                 later.append(mid)
     queue = [m for m in waiting() if m not in {r[0] for r in ready}]
@@ -120,7 +120,8 @@ def main():
         return
 
     parts, quota = [], now >= quota_until
-    for mid, finished_at in ready + [(m, None) for m in queue]:
+    for mid, finished_at, start in ready + [(m, None, None) for m in queue]:
+        when = f"@{int(start)}" if start else ""  # match start, so the site can show the date
         url, answered = None, False
         if quota:
             try:
@@ -136,10 +137,10 @@ def main():
                 n_try, _ = tries.get(mid, [0, 0])
                 tries[mid] = [n_try + 1, now]
         if url:
-            parts.append(f"{mid}={url}")
+            parts.append(f"{mid}={url}{when}")
             sent.add(mid)
         elif finished_at and now - finished_at > GIVE_UP_AFTER:
-            parts.append(str(mid))  # let the bot try on its own
+            parts.append(f"{mid}{when}")  # let the bot try on its own
             sent.add(mid)
     if parts:
         gh = shutil.which("gh") or r"C:\Program Files\GitHub CLI\gh.exe"

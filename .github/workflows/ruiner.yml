@@ -64,6 +64,9 @@ jobs:
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.request == '')
         run: python ruiner.py friends -n 5
 
+      - name: Fill missing match dates
+        run: python ruiner.py dates || echo "dates skipped"
+
       - name: Refresh hero averages and item counters
         run: python assets.py --meta || echo "meta refresh skipped"
 

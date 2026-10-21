@@ -153,6 +153,31 @@ def run_friends(n):
                     skipped.add(mid)
     _save_set("skipped.json", skipped)
     _save_set("pending.json", pending)
+    fill_dates()
+
+
+def fill_dates():
+    """Reports sent by sync before dates were passed: take the start time from the crew's match history."""
+    missing = {}
+    for f in REPORTS.glob("*.json"):
+        if f.stem.isdigit():
+            r = json.loads(f.read_text(encoding="utf-8"))
+            if not r.get("start_time"):
+                missing[int(f.stem)] = (f, r)
+    if not missing:
+        return
+    for fr in json.loads((WEB / "friends.json").read_text(encoding="utf-8")):
+        try:
+            hist = requests.get(f"{API}/players/{fr['account_id']}/match-history", timeout=60).json()
+        except Exception:
+            continue
+        for m in hist if isinstance(hist, list) else []:
+            if m["match_id"] in missing:
+                f, r = missing.pop(m["match_id"])
+                r["start_time"] = m["start_time"]
+                f.write_text(json.dumps(r, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+        if not missing:
+            break
     rebuild_index()
 
 
@@ -174,14 +199,15 @@ def run_request(text):
         todo = [(m["match_id"], m["start_time"]) for m in sorted(r.json(), key=lambda m: -m["start_time"])[:5]]
     else:
         limit = 30 if re.search(r"(?i)sync", text) else 5
-        urls = {int(mid): u for mid, u in re.findall(r"(\d{8,})=(https?://\S+)", text)}
-        text_ids = re.sub(r"=https?://\S+", "", text)
-        todo = [(int(x), None) for x in dict.fromkeys(re.findall(r"\d{8,}", text_ids))][:limit]
+        urls = {int(mid): u for mid, u in re.findall(r"(\d{8,})=(https?://[^\s@]+)", text)}
+        starts = {int(mid): int(ts) for mid, ts in re.findall(r"(\d{8,})(?:=https?://[^\s@]+)?@(\d{9,11})", text)}
+        text_ids = re.sub(r"=https?://[^\s@]+|@\d+", "", text)
+        todo = [(int(x), starts.get(int(x))) for x in dict.fromkeys(re.findall(r"\d{8,}", text_ids))][:limit]
         if re.search(r"(?i)reanalyze|переразобрать", text):
             for mid, _ in todo:
                 old = REPORTS / f"{mid}.json"
                 if old.exists():
-                    todo[todo.index((mid, None))] = (mid, json.loads(old.read_text(encoding="utf-8")).get("start_time"))
+                    todo[[t[0] for t in todo].index(mid)] = (mid, json.loads(old.read_text(encoding="utf-8")).get("start_time"))
                     old.unlink()
     if not todo:
         print("Не нашёл ID матча. Напиши в заголовке номер матча, например: match 119848007")
@@ -236,6 +262,7 @@ def main():
     c = sub.add_parser("file"); c.add_argument("path")
     d = sub.add_parser("serve"); d.add_argument("--port", type=int, default=8765)
     sub.add_parser("reindex")
+    sub.add_parser("dates")
     sub.add_parser("local")
     e = sub.add_parser("friends"); e.add_argument("-n", type=int, default=5)
     g = sub.add_parser("request"); g.add_argument("text")
@@ -256,6 +283,8 @@ def main():
         run_local()
     elif args.cmd == "reindex":
         rebuild_index()
+    elif args.cmd == "dates":
+        fill_dates()
 
 
 if __name__ == "__main__":
