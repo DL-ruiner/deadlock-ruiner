@@ -219,6 +219,8 @@ def run_live(mid, url, start_time=None):
         rebuild_index()
         print(f"- {mid}: готово (записано с трансляции)")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"- {mid}: запись трансляции не удалась ({str(e)[:120]}), матч остаётся в очереди")
         _save_set("pending.json", _load_set("pending.json") | {mid})
     finally:
