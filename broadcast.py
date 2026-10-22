@@ -77,7 +77,17 @@ def record(url, out, poll=2.0, idle_stop=120):
     """Save start + every delta fragment (and the first full one) until the stream stops growing."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    s = requests.get(f"{url}/sync", timeout=20).json()
+    deadline = time.time() + 20 * 60  # the broadcast starts a little after players connect
+    while True:
+        try:
+            s = requests.get(f"{url}/sync", timeout=20).json()
+        except (requests.RequestException, ValueError):
+            s = {}
+        if "signup_fragment" in s and "fragment" in s:
+            break
+        if time.time() > deadline:
+            raise RuntimeError("broadcast never started")
+        time.sleep(15)
     (out / "sync.json").write_text(json.dumps(s))
     (out / "start.bin").write_bytes(requests.get(f"{url}/{s['signup_fragment']}/start", timeout=60).content)
     frag = oldest_full(url, s["fragment"], s.get("keyframe_interval") or 3)

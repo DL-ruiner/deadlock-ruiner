@@ -227,7 +227,7 @@ def main():
             start_live(state, starts, ends_known={m for m, (s0, e0) in all_matches.items() if e0}, now=now)
         except Exception as e:
             print("live failed:", e)
-    queue = [m for m in waiting() if m not in {r[0] for r in ready}]
+    queue = [m for m in waiting() if m not in sent and m not in {r[0] for r in ready}]
     print("ready:", *[r[0] for r in ready] or ["-"], "| still playing or too fresh:", *later or ["-"],
           "| bot queue:", *queue or ["-"])
     if "--dry" in sys.argv or not (ready or queue):

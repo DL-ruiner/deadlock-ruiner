@@ -60,6 +60,8 @@ def save():
                 for src in (saved / name, REPORTS / name):
                     if src.exists():
                         ids |= set(json.loads(src.read_text()))
+                if name == "pending.json" and (REPORTS / "skipped.json").exists():
+                    ids -= set(json.loads((REPORTS / "skipped.json").read_text()))
                 (REPORTS / name).write_text(json.dumps(sorted(ids - done)))
             rebuild_index()
 

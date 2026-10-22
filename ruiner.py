@@ -274,7 +274,11 @@ def run_request(text):
                 _save_set("pending.json", _load_set("pending.json") | {mid})
                 print(f"- {mid}: Steam сейчас занят, матч в очереди, бот разберёт его в следующем прогоне")
                 continue
-            reason = "у Valve нет реплея" if "no replay" in str(e) or "404" in str(e) else str(e)[:120]
+            gone = "no replay" in str(e) or "404" in str(e)
+            if gone:
+                _save_set("pending.json", _load_set("pending.json") - {mid})
+                _save_set("skipped.json", _load_set("skipped.json") | {mid})
+            reason = "у Valve нет реплея" if gone else str(e)[:120]
             print(f"- {mid}: не разобран ({reason})")
 
 
